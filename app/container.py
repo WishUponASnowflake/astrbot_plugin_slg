@@ -1,15 +1,16 @@
 # app/container.py
 from pathlib import Path
+from pathlib import Path
+from ..infra.map_json_provider import JsonMapProvider
 from typing import Any
 
 from ..domain.services import MapService, StateService
 from ..infra.sqlite_repo import SQLiteStateRepository
-from ..infra.map_provider import StaticMapProvider
 from ..infra.hooks import HookBus
 from ..app_pipeline.pipeline import Pipeline
 from ..app_pipeline.stages import NormalizeStage, AuditStage
 from ..infra.html_renderer import build_map_html
-from ..infra.assets import load_assets  # <- 新增
+from ..infra.assets import load_assets
 
 class Container:
     def __init__(self, map_service, state_service, pipeline, hookbus, assets):
@@ -33,6 +34,10 @@ def _resolve_data_dir(context, config) -> Path:
     target.mkdir(parents=True, exist_ok=True)
     return target
 
+def _resolve_map_json() -> Path:
+    # 插件根/map/three_kingdoms.json（不玩什么“root 变量”，用相对本文件）
+    return Path(__file__).resolve().parents[1] / "map" / "three_kingdoms.json"
+
 def _resolve_picture_dir() -> Path:
     # 不用所谓“plugin root 变量”，就从文件相对位置找 picture/
     # app/container.py -> 插件根目录 -> picture/
@@ -42,8 +47,7 @@ def build_container(context, config=None) -> Container:
     data_dir = _resolve_data_dir(context, config)
 
     repo = SQLiteStateRepository(db_path=data_dir / "state.sqlite3")
-    map_provider = StaticMapProvider()
-
+    map_provider = JsonMapProvider(_resolve_map_json())      # ← 使用 JSON 数据
     map_service = MapService(map_provider)
     state_service = StateService(repo)
 

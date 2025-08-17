@@ -16,19 +16,6 @@ ARROW_FILL  = "rgba(55,65,81,0.70)"
 PROG_ON     = "#58d17a"
 PROG_OFF    = "#d1d5db"
 
-# ===== 城市坐标（均衡分布） =====陈仓道
-CITY_POS: Dict[str, Tuple[int, int]] = {
-    "长安": (200, 250), "潼关": (210, 320),"北地郡": (90, 240),"陈仓道": (100, 190),
-    "洛阳": (350, 300), "许昌": (305, 340), "陈留": (450, 380), "汝南": (315, 385),
-    "邺": (260, 70), "南皮": (300, 150),
-    "鄄城": (420, 120), "东阿": (445, 50),
-    "临淄": (520, 120), "北海": (565, 56),
-    "彭城": (520, 340), "下邳": (580, 260),
-    "建业": (600, 530), "会稽": (480, 510),
-    "襄阳": (265, 390), "江陵": (290, 470),
-    "汉中": (200, 430), "成都": (150, 520), "江州": (215, 560),"淮口关": (610, 420),
-}
-
 PROVINCE_LABEL_POS: Dict[str, Tuple[int, int]] = {
     "雍": (120, 240), "豫": (290, 285), "冀": (380, 150),
     "兖": (435, 225), "青": (535, 165), "徐": (515, 295),
@@ -80,15 +67,16 @@ def build_map_html(graph: MapGraph, get_progress, assets: Dict):
                 f'<text x="{px}" y="{py}" font-size="{FONT_SIZE}" fill="rgba(0,0,0,0.55)" font-weight="600">{p}州</text>'
             )
 
-    # 线路与进度条
+    # 线路与进度条：用 graph.positions
+    POS = graph.positions
     for city, gates in graph.lines.items():
-        if city not in CITY_POS: 
+        if city not in POS:
             continue
-        x1, y1 = CITY_POS[city]
+        x1, y1 = POS[city]
         for gate, nb in gates.items():
-            if nb not in CITY_POS: 
+            if nb not in POS:
                 continue
-            x2, y2 = CITY_POS[nb]
+            x2, y2 = POS[nb]
             layers_edges.append(
                 f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" '
                 f'stroke="{LINE_STROKE}" stroke-width="3" stroke-linecap="round" marker-end="url(#arrow)"></line>'
@@ -106,11 +94,11 @@ def build_map_html(graph: MapGraph, get_progress, assets: Dict):
                     f'fill="{fill}" stroke="#374151" stroke-width="0.6" />'
                 )
 
-    # 节点：无任何圆圈；改用滤镜高亮
+    # 城市图标与文字：同样用 POS
     for name, city in graph.cities.items():
-        if name not in CITY_POS: 
+        if name not in POS:
             continue
-        x, y = CITY_POS[name]
+        x, y = POS[name]
         icon = _pick_icon(city, assets)
         size = (
             ICON_SIZE_CAPITAL if city.capital

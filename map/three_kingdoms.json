@@ -1,0 +1,193 @@
+{
+  "meta": { "name": "three_kingdoms", "canvas": { "width": 800, "height": 620 } },
+  "cities": {
+    "洛阳": {
+      "province": "豫",
+      "type": "CITY",
+      "capital": true,
+      "pos": [350, 300],
+      "lines": {"南门": "许昌", "西门": "潼关"}
+    },
+    "长安": {
+      "province": "雍",
+      "type": "CITY",
+      "capital": false,
+      "pos": [200, 250],
+      "lines": {"东门": "潼关","南门": "北地郡"}
+    },
+    "潼关": {
+      "province": "雍",
+      "type": "PASS",
+      "capital": false,
+      "pos": [210, 320],
+      "lines": {"东门": "洛阳", "西门": "长安", "南门": "汉中"}
+    },
+    "北地郡": {
+      "province": "雍",
+      "type": "CITY",
+      "capital": false,
+      "pos": [90, 240],
+      "lines": {"东门": "长安"}
+    },
+    "陈仓道": {
+      "province": "雍",
+      "type": "PASS",
+      "capital": false,
+      "pos": [100, 190],
+      "lines": {"北门": "南皮","南门": "长安"}
+    },
+    "许昌": {
+      "province": "豫",
+      "type": "CITY",
+      "capital": false,
+      "pos": [305, 340],
+      "lines": {"北门": "洛阳", "东门": "陈留", "南门": "汝南"}
+    },
+    "陈留": {
+      "province": "豫",
+      "type": "CITY",
+      "capital": false,
+      "pos": [450, 380],
+      "lines": {"西门": "许昌", "东门": "彭城", "南门": "汝南"}
+    },
+    "汝南": {
+      "province": "豫",
+      "type": "CITY",
+      "capital": false,
+      "pos": [315, 385],
+      "lines": {"北门": "许昌", "北东门": "陈留"}
+    },
+    "邺": {
+      "province": "冀",
+      "type": "CITY",
+      "capital": false,
+      "pos": [260, 70],
+      "lines": {"北门": "南皮", "东门": "东阿"}
+    },
+    "南皮": {
+      "province": "冀",
+      "type": "CITY",
+      "capital": false,
+      "pos": [300, 150],
+      "lines": {"南门": "邺","南门": "陈仓道"}
+    },
+    "鄄城": {
+      "province": "兖",
+      "type": "CITY",
+      "capital": false,
+      "pos": [420, 120],
+      "lines": {"西门": "东阿", "北门": "邺", "东门": "临淄"}
+    },
+    "东阿": {
+      "province": "兖",
+      "type": "CITY",
+      "capital": false,
+      "pos": [445, 50],
+      "lines": {"西门": "鄄城", "东门": "邺", "北门": "临淄"}
+    },
+    "临淄": {
+      "province": "青",
+      "type": "CITY",
+      "capital": false,
+      "pos": [520, 120],
+      "lines": {"西门": "东阿", "北门": "北海", "南门": "武阳关"}
+    },
+    "北海": {
+      "province": "青",
+      "type": "CITY",
+      "capital": false,
+      "pos": [565, 56],
+      "lines": {"南门": "临淄"}
+    },
+    "彭城": {
+      "province": "徐",
+      "type": "CITY",
+      "capital": false,
+      "pos": [520, 340],
+      "lines": {"西门": "陈留", "东门": "下邳", "南门": "濡须口"}
+    },
+    "下邳": {
+      "province": "徐",
+      "type": "CITY",
+      "capital": false,
+      "pos": [580, 260],
+      "lines": {"西门": "彭城", "南门": "濡须口", "北门": "武阳关"}
+    },
+    "曲阿": {
+      "province": "扬",
+      "type": "CITY",
+      "capital": false,
+      "pos": [540, 459],
+      "lines": {
+        "西门": "建业",
+        "东门": "会稽"
+      }
+    },
+    "建业": {
+      "province": "扬",
+      "type": "CITY",
+      "capital": false,
+      "pos": [600, 530],
+      "lines": {"北门": "濡须口", "东门": "曲阿"}
+    },
+    "会稽": {
+      "province": "扬",
+      "type": "CITY",
+      "capital": false,
+      "pos": [480, 510],
+      "lines": {"西门": "曲阿", "西北门": "江陵"}
+    },
+    "襄阳": {
+      "province": "荆",
+      "type": "CITY",
+      "capital": false,
+      "pos": [265, 390],
+      "lines": {"东门": "许昌", "西门": "江陵"}
+    },
+    "江陵": {
+      "province": "荆",
+      "type": "CITY",
+      "capital": false,
+      "pos": [290, 470],
+      "lines": {"北门": "襄阳", "西门": "江州", "东门": "会稽"}
+    },
+    "汉中": {
+      "province": "益",
+      "type": "CITY",
+      "capital": false,
+      "pos": [200, 430],
+      "lines": {"南门": "成都", "北门": "潼关"}
+    },
+    "成都": {
+      "province": "益",
+      "type": "CITY",
+      "capital": false,
+      "pos": [150, 520],
+      "lines": {"北门": "汉中", "东门": "江州"}
+    },
+    "江州": {
+      "province": "益",
+      "type": "CITY",
+      "capital": false,
+      "pos": [215, 560],
+      "lines": {"西门": "成都", "东门": "江陵"}
+    },
+    "濡须口": {
+      "province": "扬",
+      "type": "PASS",
+      "capital": false,
+      "pos": [610, 420],
+      "lines": {"南门": "建业", "北门": "彭城", "东门": "下邳"}
+    },
+    "武阳关": {
+      "province": "徐",
+      "type": "PASS",
+      "capital": false,
+      "pos": [540, 200],
+      "lines": {
+        "北门": "临淄",
+        "南门": "下邳"
+      }
+    }
+  }
+}
