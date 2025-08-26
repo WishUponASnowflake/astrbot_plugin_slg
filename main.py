@@ -3,7 +3,7 @@ from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 
 from .app.container import build_container
-from .domain.constants import RESOURCE_CN, BUILDING_ALIASES, BUILDING_TO_RESOURCE
+from .domain.constants import RESOURCE_CN, BUILDING_ALIASES, BUILDING_TO_RESOURCE, DrawResultStatus
 
 @register("astrbot_plugin_slg", "you", "SLG Map + Resource", "0.3.0", "repo_url")
 class HexPipelinePlugin(Star):
@@ -79,11 +79,14 @@ class HexPipelinePlugin(Star):
             except:
                 times = 1
             times = max(1, min(50, times))  # 别让你一口气 999
-            got, spent, done = self.container.gacha_service.draw(p, times)
+            got, spent, done, status = self.container.gacha_service.draw(p, times)
 
-            # 全图鉴
-            if done == 0 and len(got) == 0:
+            # 根据状态判断
+            if status == DrawResultStatus.ALL_CHARACTERS_COLLECTED:
                 yield event.plain_result("你已经集齐图鉴了，抽不出新角色。")
+                return
+            elif status == DrawResultStatus.NOT_ENOUGH_RESOURCES and done == 0:
+                yield event.plain_result("资源不足，无法完成抽卡。")
                 return
 
             # 结果文本

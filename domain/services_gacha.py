@@ -3,7 +3,7 @@ import time, math, random
 from typing import Dict, List, Tuple
 from .ports import PlayerRepositoryPort
 from .entities import Player, Character
-from .constants import RESOURCE_CN
+from .constants import RESOURCE_CN, DrawResultStatus
 from .services_resources import ResourceService
 
 def _linear_cost(n: int, start: int, end: int) -> int:
@@ -37,19 +37,20 @@ class GachaService:
         # 均匀随机；以后你要加权我再给你做概率厨艺
         return random.choice(remains)
 
-    def draw(self, p: Player, count: int) -> Tuple[List[Character], Dict[str,int], int]:
+    def draw(self, p: Player, count: int) -> Tuple[List[Character], Dict[str,int], int, DrawResultStatus]:
         """
-        返回：获得的角色列表、实际消耗汇总、成功抽取次数
+        返回：获得的角色列表、实际消耗汇总、成功抽取次数、抽卡结果状态
         会自动结算资源并扣费；不够则提前停。
         """
         # 全图鉴判断
         owned = self._repo.list_owned_char_names(p.user_id)
         remains = [c for c in self._pool if c.name not in owned]
         if not remains:
-            return [], {"gold":0,"grain":0,"stone":0,"troops":0}, 0
+            return [], {"gold":0,"grain":0,"stone":0,"troops":0}, 0, DrawResultStatus.ALL_CHARACTERS_COLLECTED
 
         got: List[Character] = []
         spent = {"gold":0,"grain":0,"stone":0,"troops":0}
+        status = DrawResultStatus.SUCCESS
 
         # 先懒结算资源
         p = self._res.settle(p)
@@ -59,6 +60,7 @@ class GachaService:
             owned = self._repo.list_owned_char_names(p.user_id)
             remains = [c for c in self._pool if c.name not in owned]
             if not remains:
+                status = DrawResultStatus.ALL_CHARACTERS_COLLECTED
                 break
 
             draw_index = p.draw_count + 1  # 下一个抽的序号（从1开始）
@@ -70,6 +72,7 @@ class GachaService:
                       p.stone >= cost["stone"] and
                       p.troops>= cost["troops"])
             if not enough:
+                status = DrawResultStatus.NOT_ENOUGH_RESOURCES
                 break
 
             # 扣费
@@ -89,4 +92,4 @@ class GachaService:
             p.draw_count += 1
             self._repo.upsert_player(p)
 
-        return got, spent, len(got)
+        return got, spent, len(got), status
