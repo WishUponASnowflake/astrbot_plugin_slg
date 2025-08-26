@@ -1,6 +1,6 @@
 {
   "db_relative_dir": {
-    "description": "相对 AstrBot 根 data 目录的子目录（默认 plugin_data/astrbot_plugin_slg）",
+    "descrhintiption": "相对 AstrBot 根 data 目录的子目录",
     "type": "string",
     "default": "plugin_data/astrbot_plugin_slg"
   }

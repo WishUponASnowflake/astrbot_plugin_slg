@@ -3,8 +3,9 @@ from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 
 from .app.container import build_container
+from .domain.constants import RESOURCE_CN, BUILDING_ALIASES, BUILDING_TO_RESOURCE
 
-@register("astrbot_plugin_slg", "you", "SLG Map with Hex+Pipeline+Hooks+SQLite", "0.2.0", "repo_url")
+@register("astrbot_plugin_slg", "you", "SLG Map + Resource", "0.3.0", "repo_url")
 class HexPipelinePlugin(Star):
     def __init__(self, context: Context, config=None):
         super().__init__(context)
@@ -13,6 +14,106 @@ class HexPipelinePlugin(Star):
         self.state_svc = self.container.state_service
         self.pipe = self.container.pipeline
         self.hooks = self.container.hookbus
+        self.res = self.container.res_service
+
+    # 例子：
+    # /slg 加入
+    # /slg 资源
+    # /slg 升级 农田
+    @filter.command("slg")
+    async def slg_entry(self, event: AstrMessageEvent, subcmd: str = None, arg1: str = None):
+        uid = str(event.get_sender_id())
+        name = event.get_sender_name() or uid
+
+        if not subcmd or subcmd.strip() in ["帮助", "help", "？", "?"]:
+            yield event.plain_result("用法：/slg 加入 | 资源 | 升级 <农田/钱庄/采石场/军营> | 抽卡 <次数>")
+            return
+
+        subcmd = subcmd.strip()
+
+        if subcmd == "加入":
+            p = self.res.register(uid, name)
+            yield event.plain_result(f"已加入。四建筑默认1级，开始自动产出。")
+            return
+
+        # 其他子命令需要已注册
+        p = self.res.get_or_none(uid)
+        if not p:
+            yield event.plain_result("还没加入。先用：/slg 加入")
+            return
+
+        if subcmd in ["资源", "状态"]:
+            # 懒结算
+            p = self.res.settle(p)
+            s = self.res.status(p)
+            lvb = s["level_by_building"]           # 这里用建筑键名
+            prod = s["prod_per_min"]; cap = s["cap"]; cur = s["cur"]
+
+            lines = [
+                f"建筑等级：农田{lvb['farm']} 钱庄{lvb['bank']} 采石场{lvb['quarry']} 军营{lvb['barracks']}",
+                f"产出/分钟：粮{prod['grain']} 金{prod['gold']} 石{prod['stone']} 兵{prod['troops']}",
+                f"当前/上限：粮{cur['grain']}/{cap['grain']} 金{cur['gold']}/{cap['gold']} 石{cur['stone']}/{cap['stone']} 兵{cur['troops']}/{cap['troops']}",
+            ]
+            yield event.plain_result("\n".join(lines))
+            return
+
+        if subcmd == "升级":
+            if not arg1:
+                yield event.plain_result("用法：/slg 升级 <农田|钱庄|采石场|军营>")
+                return
+            ok, msg, p = self.res.upgrade(p, arg1.strip())
+            if ok:
+                # 升级后顺便结算一次让玩家看到新产能
+                p = self.res.settle(p)
+                s = self.res.status(p)
+                prod = s["prod_per_min"]; lv = s["level"]
+                yield event.plain_result(f"{msg}\n新产能/分钟：粮{prod['grain']} 金{prod['gold']} 石{prod['stone']} 兵{prod['troops']}")
+            else:
+                yield event.plain_result(msg)
+            return
+
+        if subcmd == "抽卡":
+            # 次数
+            try:
+                times = int(arg1) if arg1 is not None else 1
+            except:
+                times = 1
+            times = max(1, min(50, times))  # 别让你一口气 999
+            got, spent, done = self.container.gacha_service.draw(p, times)
+
+            # 全图鉴
+            if done == 0 and len(got) == 0:
+                yield event.plain_result("你已经集齐图鉴了，抽不出新角色。")
+                return
+
+            # 结果文本
+            lines = []
+            if done > 0:
+                names = [f"{c.name}（{c.title}）" if c.title else c.name for c in got]
+                lines.append(f"抽取成功 {done}/{times} 次")
+                if names:
+                    lines.append("获得：\n- " + "\n- ".join(names))
+                # 消耗
+                cost_str = []
+                for k in ("gold","grain","stone","troops"):
+                    if spent[k] > 0:
+                        cn = {"gold":"金钱","grain":"粮食","stone":"石头","troops":"军队"}[k]
+                        cost_str.append(f"{cn}{spent[k]}")
+                if cost_str:
+                    lines.append("总消耗：" + "，".join(cost_str))
+            else:
+                lines.append("资源不足，无法完成抽卡。")
+
+            # 附加提示：下次单抽价格预览（不收费）
+            nxt = p.draw_count + 1
+            cst = self.container.gacha_service.cost_for_draw_index(nxt) if hasattr(self.container.gacha_service, "cost_for_draw_index") else None
+            if cst:
+                lines.append(f"下次单抽费用：金{cst['gold']} 粮{cst['grain']} 石{cst['stone']} 兵{cst['troops']}（前5次免费，6-15线性涨，之后恒定）")
+
+            yield event.plain_result("\n".join(lines))
+            return
+
+        yield event.plain_result("未知子命令。用法：/slg 加入 | 资源 | 升级 <农田/钱庄/采石场/军营> | 抽卡 <次数>")
 
     # ====== 地图命令 ======
 
