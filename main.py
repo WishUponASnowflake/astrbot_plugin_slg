@@ -35,6 +35,49 @@ class HexPipelinePlugin(Star):
             yield event.plain_result(f"已加入。四建筑默认1级，开始自动产出。")
             return
 
+        # ===== 进军：我方队伍1 vs 对方队伍1（临时测试） =====
+        if subcmd in ["进军", "攻打", "开战"]:
+            target = str(arg1).strip() if arg1 is not None else ""
+            if not target.isdigit():
+                yield event.plain_result("用法：slg 进军 对方ID（数字）")
+                return
+            defender_uid = target
+
+            p_me = self.container.res_service.get_or_none(uid)
+            if not p_me:
+                yield event.plain_result("你还没加入游戏，先执行：slg 加入"); return
+            p_enemy = self.container.res_service.get_or_none(defender_uid)
+            if not p_enemy:
+                yield event.plain_result("对方未加入游戏"); return
+
+            # 保证队伍表存在
+            self.container.team_service.ensure_teams(uid)
+            self.container.team_service.ensure_teams(defender_uid)
+
+            a_slots = self.container.res_service._repo.list_team_slots(uid, 1)
+            b_slots = self.container.res_service._repo.list_team_slots(defender_uid, 1)
+            if not any(n for _, n in a_slots):
+                yield event.plain_result("你的队伍1没有任何上阵角色"); return
+            if not any(n for _, n in b_slots):
+                yield event.plain_result("对方队伍1没有任何上阵角色"); return
+
+            try:
+                result = await self.container.battle_service.simulate(uid, defender_uid)
+            except Exception as e:
+                yield event.plain_result(f"战斗模拟失败：{e}")
+                return
+
+            winner = result["winner"]
+            probA, probB = result["prob"]["A"], result["prob"]["B"]
+            label  = "我方胜" if winner=="A" else "对方胜"
+            yield event.plain_result(
+                f"战斗结果：{label}\n"
+                f"胜率估计：我方 {int(probA*100)}% / 对方 {int(probB*100)}%\n"
+                f"评估信心：{result.get('confidence','中')}\n"
+                f"注意：本功能为临时测试，不结算战损。"
+            )
+            return
+
         # 其他子命令需要已注册
         p = self.res.get_or_none(uid)
         if not p:
