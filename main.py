@@ -16,269 +16,253 @@ class HexPipelinePlugin(Star):
         self.hooks = self.container.hookbus
         self.res = self.container.res_service
 
-    # 例子：
-    # /slg 加入
-    # /slg 资源
-    # /slg 升级 农田
-    @filter.command("slg")
-    async def slg_entry(self, event: AstrMessageEvent, subcmd: str = None, arg1: str = None, arg2: str = None, arg3: str = None):
+    # SLG 主命令组
+    @filter.command_group("slg")
+    def slg_group(self):
+        pass
+
+    @slg_group.command("加入", alias={"join"})
+    async def slg_join(self, event: AstrMessageEvent):
         uid = str(event.get_sender_id()); name = event.get_sender_name() or uid
+        p = self.res.register(uid, name)
+        yield event.plain_result(f"已加入。四建筑默认1级，开始自动产出。")
 
-        if not subcmd or subcmd.strip() in ["帮助", "help", "？", "?"]:
-            yield event.plain_result("用法：/slg 加入 | 资源 | 升级 <农田/钱庄/采石场/军营> | 抽卡 <次数>")
+    @slg_group.command("帮助", alias={"help", "？", "?"})
+    async def slg_help(self, event: AstrMessageEvent):
+        yield event.plain_result("用法：/slg 加入 | 资源 | 升级 <农田/钱庄/采石场/军营> | 抽卡 <次数>")
+
+    @slg_group.command("进军", alias={"攻打", "开战"})
+    async def slg_march(self, event: AstrMessageEvent, target: str):
+        uid = str(event.get_sender_id()); name = event.get_sender_name() or uid
+        if not target.isdigit():
+            yield event.plain_result("用法：slg 进军 对方ID（数字）")
+            return
+        defender_uid = target
+
+        p_me = self.container.res_service.get_or_none(uid)
+        if not p_me:
+            yield event.plain_result("你还没加入游戏，先执行：slg 加入"); return
+        p_enemy = self.container.res_service.get_or_none(defender_uid)
+        if not p_enemy:
+            yield event.plain_result("对方未加入游戏"); return
+
+        # 保证队伍表存在
+        self.container.team_service.ensure_teams(uid)
+        self.container.team_service.ensure_teams(defender_uid)
+
+        a_slots = self.container.res_service._repo.list_team_slots(uid, 1)
+        b_slots = self.container.res_service._repo.list_team_slots(defender_uid, 1)
+        if not any(n for _, n in a_slots):
+            yield event.plain_result("你的队伍1没有任何上阵角色"); return
+        if not any(n for _, n in b_slots):
+            yield event.plain_result("对方队伍1没有任何上阵角色"); return
+
+        try:
+            result = await self.container.battle_service.simulate(uid, defender_uid)
+        except Exception as e:
+            yield event.plain_result(f"战斗模拟失败：{e}")
             return
 
-        subcmd = subcmd.strip()
+        winner = result["winner"]
+        probA, probB = result["prob"]["A"], result["prob"]["B"]
+        label  = "我方胜" if winner=="A" else "对方胜"
+        yield event.plain_result(
+            f"战斗结果：{label}\n"
+            f"胜率估计：我方 {int(probA*100)}% / 对方 {int(probB*100)}%\n"
+            f"评估信心：{result.get('confidence','中')}\n"
+            f"注意：本功能为临时测试，不结算战损。"
+        )
 
-        if subcmd == "加入":
-            p = self.res.register(uid, name)
-            yield event.plain_result(f"已加入。四建筑默认1级，开始自动产出。")
+    # 同盟子命令组
+    @slg_group.group("同盟", alias={"联盟"})
+    def alliance_group(self):
+        pass
+
+    @alliance_group.command("创建")
+    async def alliance_create(self, event: AstrMessageEvent, name: str):
+        uid = str(event.get_sender_id()); name = event.get_sender_name() or uid
+        if not self.res.get_or_none(uid):
+            yield event.plain_result("还没加入。先用：/slg 加入"); return
+        ok, msg = self.container.alliance_service.create(uid, name)
+        yield event.plain_result(msg)
+
+    @alliance_group.command("加入")
+    async def alliance_join(self, event: AstrMessageEvent, name: str):
+        uid = str(event.get_sender_id()); name = event.get_sender_name() or uid
+        if not self.res.get_or_none(uid):
+            yield event.plain_result("还没加入。先用：/slg 加入"); return
+        ok, msg = self.container.alliance_service.join(uid, name)
+        yield event.plain_result(msg)
+
+    @alliance_group.command("成员", alias={"成员列表"})
+    async def alliance_members(self, event: AstrMessageEvent, name: str = None):
+        uid = str(event.get_sender_id()); name = event.get_sender_name() or uid
+        if name:
+            ok, title, ms = self.container.alliance_service.members(name)
+        else:
+            ok, title, ms = self.container.alliance_service.my_members(uid)
+        if not ok:
+            yield event.plain_result(title)
             return
+        lines = [f"【{title}】成员（{len(ms)}人）:"]
+        for m in ms:
+            role = "领袖" if m["role"] == "leader" else "成员"
+            lines.append(f"- {m['user_id']}（{role}）")
+        yield event.plain_result("\n".join(lines))
 
-        # ===== 进军：我方队伍1 vs 对方队伍1（临时测试） =====
-        if subcmd in ["进军", "攻打", "开战"]:
-            target = str(arg1).strip() if arg1 is not None else ""
-            if not target.isdigit():
-                yield event.plain_result("用法：slg 进军 对方ID（数字）")
-                return
-            defender_uid = target
-
-            p_me = self.container.res_service.get_or_none(uid)
-            if not p_me:
-                yield event.plain_result("你还没加入游戏，先执行：slg 加入"); return
-            p_enemy = self.container.res_service.get_or_none(defender_uid)
-            if not p_enemy:
-                yield event.plain_result("对方未加入游戏"); return
-
-            # 保证队伍表存在
-            self.container.team_service.ensure_teams(uid)
-            self.container.team_service.ensure_teams(defender_uid)
-
-            a_slots = self.container.res_service._repo.list_team_slots(uid, 1)
-            b_slots = self.container.res_service._repo.list_team_slots(defender_uid, 1)
-            if not any(n for _, n in a_slots):
-                yield event.plain_result("你的队伍1没有任何上阵角色"); return
-            if not any(n for _, n in b_slots):
-                yield event.plain_result("对方队伍1没有任何上阵角色"); return
-
-            try:
-                result = await self.container.battle_service.simulate(uid, defender_uid)
-            except Exception as e:
-                yield event.plain_result(f"战斗模拟失败：{e}")
-                return
-
-            winner = result["winner"]
-            probA, probB = result["prob"]["A"], result["prob"]["B"]
-            label  = "我方胜" if winner=="A" else "对方胜"
-            yield event.plain_result(
-                f"战斗结果：{label}\n"
-                f"胜率估计：我方 {int(probA*100)}% / 对方 {int(probB*100)}%\n"
-                f"评估信心：{result.get('confidence','中')}\n"
-                f"注意：本功能为临时测试，不结算战损。"
-            )
+    @alliance_group.command("列表", alias={"所有", "排行"})
+    async def alliance_list_all(self, event: AstrMessageEvent):
+        allys = self.container.alliance_service.list_all()
+        if not allys:
+            yield event.plain_result("当前没有任何同盟")
             return
+        lines = ["同盟列表："]
+        for a in allys:
+            lines.append(f"- {a['name']} 领袖:{a['leader_user_id']} 人数:{a['members']}")
+        yield event.plain_result("\n".join(lines))
 
-        # 其他子命令需要已注册
+    @alliance_group.command("帮助", alias={"help", "?", "？"})
+    async def alliance_help(self, event: AstrMessageEvent):
+        yield event.plain_result("用法：\n"
+                                 "  slg 同盟 创建 名称\n"
+                                 "  slg 同盟 加入 名称\n"
+                                 "  slg 同盟 成员 [名称]    # 不填则查看自己所在同盟成员\n"
+                                 "  slg 同盟 列表")
+
+    @slg_group.command("资源", alias={"状态"})
+    async def slg_resource_status(self, event: AstrMessageEvent):
+        uid = str(event.get_sender_id()); name = event.get_sender_name() or uid
         p = self.res.get_or_none(uid)
         if not p:
             yield event.plain_result("还没加入。先用：/slg 加入")
             return
+        # 懒结算
+        p = self.res.settle(p)
+        s = self.res.status(p)
+        lvb = s["level_by_building"]           # 这里用建筑键名
+        prod = s["prod_per_min"]; cap = s["cap"]; cur = s["cur"]
 
-        # ===== 同盟 =====
-        if subcmd in ["同盟", "联盟"]:
-            # 二级子命令：创建/加入/成员/列表/我的
-            action = str(arg1).strip() if arg1 is not None else ""
-            if not action or action in ["帮助", "help", "?","？"]:
-                yield event.plain_result("用法：\n"
-                                         "  slg 同盟 创建 名称\n"
-                                         "  slg 同盟 加入 名称\n"
-                                         "  slg 同盟 成员 [名称]    # 不填则查看自己所在同盟成员\n"
-                                         "  slg 同盟 列表")
-                return
+        lines = [
+            f"建筑等级：农田{lvb['farm']} 钱庄{lvb['bank']} 采石场{lvb['quarry']} 军营{lvb['barracks']}",
+            f"产出/分钟：粮{prod['grain']} 金{prod['gold']} 石{prod['stone']} 兵{prod['troops']}",
+            f"当前/上限：粮{cur['grain']}/{cap['grain']} 金{cur['gold']}/{cap['gold']} 石{cur['stone']}/{cap['stone']} 兵{cur['troops']}/{cap['troops']}",
+        ]
+        yield event.plain_result("\n".join(lines))
 
-            if action == "创建":
-                # 要求已注册
-                if not self.res.get_or_none(uid):
-                    yield event.plain_result("还没加入。先用：/slg 加入"); return
-                nm = str(arg2).strip() if arg2 is not None else ""
-                ok, msg = self.container.alliance_service.create(uid, nm)
-                yield event.plain_result(msg)
-                return
-
-            if action == "加入":
-                if not self.res.get_or_none(uid):
-                    yield event.plain_result("还没加入。先用：/slg 加入"); return
-                nm = str(arg2).strip() if arg2 is not None else ""
-                ok, msg = self.container.alliance_service.join(uid, nm)
-                yield event.plain_result(msg)
-                return
-
-            if action in ["成员", "成员列表"]:
-                nm = str(arg2).strip() if arg2 is not None else ""
-                if nm:
-                    ok, title, ms = self.container.alliance_service.members(nm)
-                else:
-                    ok, title, ms = self.container.alliance_service.my_members(uid)
-                if not ok:
-                    yield event.plain_result(title)
-                    return
-                lines = [f"【{title}】成员（{len(ms)}人）:"]
-                for m in ms:
-                    role = "领袖" if m["role"] == "leader" else "成员"
-                    lines.append(f"- {m['user_id']}（{role}）")
-                yield event.plain_result("\n".join(lines))
-                return
-
-            if action in ["列表", "所有", "排行"]:
-                allys = self.container.alliance_service.list_all()
-                if not allys:
-                    yield event.plain_result("当前没有任何同盟")
-                    return
-                lines = ["同盟列表："]
-                for a in allys:
-                    lines.append(f"- {a['name']} 领袖:{a['leader_user_id']} 人数:{a['members']}")
-                yield event.plain_result("\n".join(lines))
-                return
-
-            yield event.plain_result("未知子命令。同盟用法：创建/加入/成员/列表")
-            return
-
-        if subcmd in ["资源", "状态"]:
-            # 懒结算
-            p = self.res.settle(p)
-            s = self.res.status(p)
-            lvb = s["level_by_building"]           # 这里用建筑键名
-            prod = s["prod_per_min"]; cap = s["cap"]; cur = s["cur"]
-
-            lines = [
-                f"建筑等级：农田{lvb['farm']} 钱庄{lvb['bank']} 采石场{lvb['quarry']} 军营{lvb['barracks']}",
-                f"产出/分钟：粮{prod['grain']} 金{prod['gold']} 石{prod['stone']} 兵{prod['troops']}",
-                f"当前/上限：粮{cur['grain']}/{cap['grain']} 金{cur['gold']}/{cap['gold']} 石{cur['stone']}/{cap['stone']} 兵{cur['troops']}/{cap['troops']}",
-            ]
-            yield event.plain_result("\n".join(lines))
-            return
-
-        # ===== 队伍：查看 =====
-        if subcmd in ["队伍", "编成", "编队"]:
-            p = self.res.get_or_none(uid)
-            if not p: 
-                yield event.plain_result("还没加入。先用：/slg 加入"); return
-            self.container.team_service.ensure_teams(uid)
-            if arg1 and str(arg1).strip().isdigit():
-                t = int(str(arg1).strip())
-                info = self.container.team_service.show_team(uid, t)
+    @slg_group.command("队伍", alias={"编成", "编队"})
+    async def slg_team(self, event: AstrMessageEvent, team_no: int = None):
+        uid = str(event.get_sender_id()); name = event.get_sender_name() or uid
+        p = self.res.get_or_none(uid)
+        if not p: 
+            yield event.plain_result("还没加入。先用：/slg 加入"); return
+        self.container.team_service.ensure_teams(uid)
+        if team_no:
+            info = self.container.team_service.show_team(uid, team_no)
+            m = "、".join([f"[{x['slot']}]{x['name']}Lv{x['level']}" if x['name'] else f"[{x['slot']}]空"
+                           for x in info["members"]])
+            yield event.plain_result(f"队伍{team_no}：{m}\n兵力 {info['soldiers']}/{info['capacity']}")
+        else:
+            infos = self.container.team_service.list_teams(uid)
+            lines = []
+            for info in infos:
                 m = "、".join([f"[{x['slot']}]{x['name']}Lv{x['level']}" if x['name'] else f"[{x['slot']}]空"
                                for x in info["members"]])
-                yield event.plain_result(f"队伍{t}：{m}\n兵力 {info['soldiers']}/{info['capacity']}")
-            else:
-                infos = self.container.team_service.list_teams(uid)
-                lines = []
-                for info in infos:
-                    m = "、".join([f"[{x['slot']}]{x['name']}Lv{x['level']}" if x['name'] else f"[{x['slot']}]空"
-                                   for x in info["members"]])
-                    lines.append(f"队伍{info['team_no']}：{m} | 兵 {info['soldiers']}/{info['capacity']}")
-                yield event.plain_result("\n".join(lines))
-            return
-
-        # ===== 上阵：把角色放入队伍 =====
-        if subcmd in ["上阵", "加入队伍"]:
-            p = self.res.get_or_none(uid)
-            if not p: 
-                yield event.plain_result("还没加入。先用：/slg 加入"); return
-            if not arg1 or not arg2:
-                yield event.plain_result("用法：/slg 上阵 角色名 队伍编号 [槽位1-3]"); return
-            char_name = str(arg1).strip()
-            try:
-                team_no = int(str(arg2).strip())
-            except:
-                yield event.plain_result("队伍编号必须是 1~3"); return
-            slot_idx = None
-            if arg3 and str(arg3).strip().isdigit():
-                slot_idx = int(str(arg3).strip())
-            self.container.team_service.ensure_teams(uid)
-            ok, msg = self.container.team_service.assign(uid, char_name, team_no, slot_idx)
-            yield event.plain_result(msg)
-            return
-
-        # ===== 补兵：把队伍兵力补到上限，消耗 troops =====
-        if subcmd in ["补兵"]:
-            p = self.res.get_or_none(uid)
-            if not p: 
-                yield event.plain_result("还没加入。先用：/slg 加入"); return
-            if not arg1 or not str(arg1).strip().isdigit():
-                yield event.plain_result("用法：/slg 补兵 队伍编号"); return
-            team_no = int(str(arg1).strip())
-            self.container.team_service.ensure_teams(uid)
-            ok, msg, p2 = self.container.team_service.reinforce(p, team_no)
-            yield event.plain_result(msg)
-            return
-
-        # ===== 升级：建筑或角色 =====
-        if subcmd in ["升级"]:
-            p = self.res.get_or_none(uid)
-            if not p: 
-                yield event.plain_result("还没加入。先用：/slg 加入"); return
-            if not arg1:
-                yield event.plain_result("用法：/slg 升级 <农田|钱庄|采石场|军营|角色名>"); return
-
-            # 先判断是否建筑
-            key = str(arg1).strip()
-            bid = BUILDING_ALIASES.get(key, key)
-            if bid in BUILDING_TO_RESOURCE:
-                ok, msg, p = self.res.upgrade(p, key)
-                yield event.plain_result(msg)
-                return
-
-            # 否则按“升级角色”
-            ok, msg, p = self.container.team_service.upgrade_char(p, key)
-            yield event.plain_result(msg)
-            return
-
-        if subcmd == "抽卡":
-            # 次数
-            try:
-                times = int(arg1) if arg1 is not None else 1
-            except:
-                times = 1
-            times = max(1, min(50, times))  # 别让你一口气 999
-            got, spent, done, status = self.container.gacha_service.draw(p, times)
-
-            # 根据状态判断
-            if status == DrawResultStatus.ALL_CHARACTERS_COLLECTED:
-                yield event.plain_result("你已经集齐图鉴了，抽不出新角色。")
-                return
-            elif status == DrawResultStatus.NOT_ENOUGH_RESOURCES and done == 0:
-                yield event.plain_result("资源不足，无法完成抽卡。")
-                return
-
-            # 结果文本
-            lines = []
-            if done > 0:
-                names = [f"{c.name}（{c.title}）" if c.title else c.name for c in got]
-                lines.append(f"抽取成功 {done}/{times} 次")
-                if names:
-                    lines.append("获得：\n- " + "\n- ".join(names))
-                # 消耗
-                cost_str = []
-                for k in ("gold","grain","stone","troops"):
-                    if spent[k] > 0:
-                        cn = {"gold":"金钱","grain":"粮食","stone":"石头","troops":"军队"}[k]
-                        cost_str.append(f"{cn}{spent[k]}")
-                if cost_str:
-                    lines.append("总消耗：" + "，".join(cost_str))
-            else:
-                lines.append("资源不足，无法完成抽卡。")
-
-            # 附加提示：下次单抽价格预览（不收费）
-            nxt = p.draw_count + 1
-            cst = self.container.gacha_service.cost_for_draw_index(nxt) if hasattr(self.container.gacha_service, "cost_for_draw_index") else None
-            if cst:
-                lines.append(f"下次单抽费用：金{cst['gold']} 粮{cst['grain']} 石{cst['stone']} 兵{cst['troops']}（前5次免费，6-15线性涨，之后恒定）")
-
+                lines.append(f"队伍{info['team_no']}：{m} | 兵 {info['soldiers']}/{info['capacity']}")
             yield event.plain_result("\n".join(lines))
+
+    @slg_group.command("上阵", alias={"加入队伍"})
+    async def slg_assign_char(self, event: AstrMessageEvent, char_name: str, team_no: int, slot_idx: int = None):
+        uid = str(event.get_sender_id()); name = event.get_sender_name() or uid
+        p = self.res.get_or_none(uid)
+        if not p: 
+            yield event.plain_result("还没加入。先用：/slg 加入"); return
+        if not char_name or not team_no:
+            yield event.plain_result("用法：/slg 上阵 角色名 队伍编号 [槽位1-3]"); return
+        try:
+            team_no = int(team_no)
+        except:
+            yield event.plain_result("队伍编号必须是 1~3"); return
+        self.container.team_service.ensure_teams(uid)
+        ok, msg = self.container.team_service.assign(uid, char_name, team_no, slot_idx)
+        yield event.plain_result(msg)
+
+    @slg_group.command("补兵")
+    async def slg_reinforce(self, event: AstrMessageEvent, team_no: int):
+        uid = str(event.get_sender_id()); name = event.get_sender_name() or uid
+        p = self.res.get_or_none(uid)
+        if not p: 
+            yield event.plain_result("还没加入。先用：/slg 加入"); return
+        if not team_no:
+            yield event.plain_result("用法：/slg 补兵 队伍编号"); return
+        self.container.team_service.ensure_teams(uid)
+        ok, msg, p2 = self.container.team_service.reinforce(p, team_no)
+        yield event.plain_result(msg)
+
+    @slg_group.command("升级")
+    async def slg_upgrade(self, event: AstrMessageEvent, target_name: str):
+        uid = str(event.get_sender_id()); name = event.get_sender_name() or uid
+        p = self.res.get_or_none(uid)
+        if not p: 
+            yield event.plain_result("还没加入。先用：/slg 加入"); return
+        if not target_name:
+            yield event.plain_result("用法：/slg 升级 <农田|钱庄|采石场|军营|角色名>"); return
+
+        # 先判断是否建筑
+        key = str(target_name).strip()
+        bid = BUILDING_ALIASES.get(key, key)
+        if bid in BUILDING_TO_RESOURCE:
+            ok, msg, p = self.res.upgrade(p, key)
+            yield event.plain_result(msg)
             return
 
-        yield event.plain_result("未知子命令。用法：/slg 加入 | 资源 | 升级 <农田/钱庄/采石场/军营> | 抽卡 <次数>")
+        # 否则按“升级角色”
+        ok, msg, p = self.container.team_service.upgrade_char(p, key)
+        yield event.plain_result(msg)
+
+    @slg_group.command("抽卡")
+    async def slg_gacha(self, event: AstrMessageEvent, times: int = 1):
+        uid = str(event.get_sender_id()); name = event.get_sender_name() or uid
+        p = self.res.get_or_none(uid)
+        if not p:
+            yield event.plain_result("还没加入。先用：/slg 加入")
+            return
+        
+        times = max(1, min(50, times))  # 别让你一口气 999
+        got, spent, done, status = self.container.gacha_service.draw(p, times)
+
+        # 根据状态判断
+        if status == DrawResultStatus.ALL_CHARACTERS_COLLECTED:
+            yield event.plain_result("你已经集齐图鉴了，抽不出新角色。")
+            return
+        elif status == DrawResultStatus.NOT_ENOUGH_RESOURCES and done == 0:
+            yield event.plain_result("资源不足，无法完成抽卡。")
+            return
+
+        # 结果文本
+        lines = []
+        if done > 0:
+            names = [f"{c.name}（{c.title}）" if c.title else c.name for c in got]
+            lines.append(f"抽取成功 {done}/{times} 次")
+            if names:
+                lines.append("获得：\n- " + "\n- ".join(names))
+            # 消耗
+            cost_str = []
+            for k in ("gold","grain","stone","troops"):
+                if spent[k] > 0:
+                    cn = {"gold":"金钱","grain":"粮食","stone":"石头","troops":"军队"}[k]
+                    cost_str.append(f"{cn}{spent[k]}")
+            if cost_str:
+                lines.append("总消耗：" + "，".join(cost_str))
+        else:
+            lines.append("资源不足，无法完成抽卡。")
+
+        # 附加提示：下次单抽价格预览（不收费）
+        nxt = p.draw_count + 1
+        cst = self.container.gacha_service.cost_for_draw_index(nxt) if hasattr(self.container.gacha_service, "cost_for_draw_index") else None
+        if cst:
+            lines.append(f"下次单抽费用：金{cst['gold']} 粮{cst['grain']} 石{cst['stone']} 兵{cst['troops']}（前5次免费，6-15线性涨，之后恒定）")
+
+        yield event.plain_result("\n".join(lines))
 
     # ====== 地图命令 ======
 
