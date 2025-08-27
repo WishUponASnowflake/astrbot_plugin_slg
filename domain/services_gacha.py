@@ -85,7 +85,7 @@ class GachaService:
 
             # 发卡
             ch = self._pick_one(remains)
-            self._repo.add_character(p.user_id, ch.name, level=1, obtained_at=self._now())
+            self._repo.add_char(p.user_id, ch.name, level=1)
             got.append(ch)
 
             # 计数 +1 并落库

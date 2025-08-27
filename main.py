@@ -21,9 +21,8 @@ class HexPipelinePlugin(Star):
     # /slg 资源
     # /slg 升级 农田
     @filter.command("slg")
-    async def slg_entry(self, event: AstrMessageEvent, subcmd: str = None, arg1: str = None):
-        uid = str(event.get_sender_id())
-        name = event.get_sender_name() or uid
+    async def slg_entry(self, event: AstrMessageEvent, subcmd: str = None, arg1: str = None, arg2: str = None, arg3: str = None):
+        uid = str(event.get_sender_id()); name = event.get_sender_name() or uid
 
         if not subcmd or subcmd.strip() in ["帮助", "help", "？", "?"]:
             yield event.plain_result("用法：/slg 加入 | 资源 | 升级 <农田/钱庄/采石场/军营> | 抽卡 <次数>")
@@ -57,19 +56,80 @@ class HexPipelinePlugin(Star):
             yield event.plain_result("\n".join(lines))
             return
 
-        if subcmd == "升级":
-            if not arg1:
-                yield event.plain_result("用法：/slg 升级 <农田|钱庄|采石场|军营>")
-                return
-            ok, msg, p = self.res.upgrade(p, arg1.strip())
-            if ok:
-                # 升级后顺便结算一次让玩家看到新产能
-                p = self.res.settle(p)
-                s = self.res.status(p)
-                prod = s["prod_per_min"]; lv = s["level"]
-                yield event.plain_result(f"{msg}\n新产能/分钟：粮{prod['grain']} 金{prod['gold']} 石{prod['stone']} 兵{prod['troops']}")
+        # ===== 队伍：查看 =====
+        if subcmd in ["队伍", "编成", "编队"]:
+            p = self.res.get_or_none(uid)
+            if not p: 
+                yield event.plain_result("还没加入。先用：/slg 加入"); return
+            self.container.team_service.ensure_teams(uid)
+            if arg1 and str(arg1).strip().isdigit():
+                t = int(str(arg1).strip())
+                info = self.container.team_service.show_team(uid, t)
+                m = "、".join([f"[{x['slot']}]{x['name']}Lv{x['level']}" if x['name'] else f"[{x['slot']}]空"
+                               for x in info["members"]])
+                yield event.plain_result(f"队伍{t}：{m}\n兵力 {info['soldiers']}/{info['capacity']}")
             else:
+                infos = self.container.team_service.list_teams(uid)
+                lines = []
+                for info in infos:
+                    m = "、".join([f"[{x['slot']}]{x['name']}Lv{x['level']}" if x['name'] else f"[{x['slot']}]空"
+                                   for x in info["members"]])
+                    lines.append(f"队伍{info['team_no']}：{m} | 兵 {info['soldiers']}/{info['capacity']}")
+                yield event.plain_result("\n".join(lines))
+            return
+
+        # ===== 上阵：把角色放入队伍 =====
+        if subcmd in ["上阵", "加入队伍"]:
+            p = self.res.get_or_none(uid)
+            if not p: 
+                yield event.plain_result("还没加入。先用：/slg 加入"); return
+            if not arg1 or not arg2:
+                yield event.plain_result("用法：/slg 上阵 角色名 队伍编号 [槽位1-3]"); return
+            char_name = str(arg1).strip()
+            try:
+                team_no = int(str(arg2).strip())
+            except:
+                yield event.plain_result("队伍编号必须是 1~3"); return
+            slot_idx = None
+            if arg3 and str(arg3).strip().isdigit():
+                slot_idx = int(str(arg3).strip())
+            self.container.team_service.ensure_teams(uid)
+            ok, msg = self.container.team_service.assign(uid, char_name, team_no, slot_idx)
+            yield event.plain_result(msg)
+            return
+
+        # ===== 补兵：把队伍兵力补到上限，消耗 troops =====
+        if subcmd in ["补兵"]:
+            p = self.res.get_or_none(uid)
+            if not p: 
+                yield event.plain_result("还没加入。先用：/slg 加入"); return
+            if not arg1 or not str(arg1).strip().isdigit():
+                yield event.plain_result("用法：/slg 补兵 队伍编号"); return
+            team_no = int(str(arg1).strip())
+            self.container.team_service.ensure_teams(uid)
+            ok, msg, p2 = self.container.team_service.reinforce(p, team_no)
+            yield event.plain_result(msg)
+            return
+
+        # ===== 升级：建筑或角色 =====
+        if subcmd in ["升级"]:
+            p = self.res.get_or_none(uid)
+            if not p: 
+                yield event.plain_result("还没加入。先用：/slg 加入"); return
+            if not arg1:
+                yield event.plain_result("用法：/slg 升级 <农田|钱庄|采石场|军营|角色名>"); return
+
+            # 先判断是否建筑
+            key = str(arg1).strip()
+            bid = BUILDING_ALIASES.get(key, key)
+            if bid in BUILDING_TO_RESOURCE:
+                ok, msg, p = self.res.upgrade(p, key)
                 yield event.plain_result(msg)
+                return
+
+            # 否则按“升级角色”
+            ok, msg, p = self.container.team_service.upgrade_char(p, key)
+            yield event.plain_result(msg)
             return
 
         if subcmd == "抽卡":

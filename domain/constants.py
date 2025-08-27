@@ -62,3 +62,18 @@ UPGRADE_RESOURCE_COST: Dict[str, List[int]] = {
     "stone":  [0, 0, 340, 600, 900, 1240, 1620, 2050, 2520, 3030, 3580],
     "troops": [0, 0, 130, 210, 340, 510, 730, 980, 1280, 1620, 2010],
 }
+
+# === 队伍与角色 ===
+TEAM_COUNT = 3
+TEAM_SLOTS = 3
+TEAM_BASE_TROOPS = 400           # 每支队伍基础兵力上限
+TROOPS_PER_LEVEL = 200           # 每个角色可携带 = 角色等级 * 200
+CHAR_LEVEL_MAX = 7               # 角色最高 7 级
+
+# 角色升级消耗：线性区间（到达目标等级 T 的一次性成本；T=2..7）
+CHAR_LEVEL_UP_COST_RANGE = {
+    "gold":   (10, 1400),
+    "grain":  (10,  700),
+    "stone":  ( 0,   0),
+    "troops": (10,  700),
+}

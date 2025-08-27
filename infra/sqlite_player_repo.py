@@ -17,12 +17,30 @@ CREATE TABLE IF NOT EXISTS players(
 );
 """
 DDL_CHARS = """
-CREATE TABLE IF NOT EXISTS player_characters(
-  user_id TEXT NOT NULL,
-  name TEXT NOT NULL,
-  level INTEGER NOT NULL,
-  obtained_at INTEGER NOT NULL,
+CREATE TABLE IF NOT EXISTS player_chars(
+  user_id TEXT,
+  name TEXT,
+  level INTEGER,
   PRIMARY KEY(user_id, name)
+);
+"""
+
+DDL_TEAMS = """
+CREATE TABLE IF NOT EXISTS teams(
+  user_id TEXT,
+  team_no INTEGER,           -- 1..3
+  soldiers INTEGER,          -- 当前兵力
+  PRIMARY KEY(user_id, team_no)
+);
+"""
+
+DDL_TEAM_SLOTS = """
+CREATE TABLE IF NOT EXISTS team_slots(
+  user_id TEXT,
+  team_no INTEGER,
+  slot_idx INTEGER,          -- 1..3
+  char_name TEXT,            -- 允许为空(NULL)表示空位
+  PRIMARY KEY(user_id, team_no, slot_idx)
 );
 """
 
@@ -37,7 +55,9 @@ class SQLitePlayerRepository(PlayerRepositoryPort):
     def init_schema(self) -> None:
         self._conn.execute(DDL_PLAYERS)
         self._conn.execute(DDL_CHARS)
-        # 迁移：补列 draw_count（老库没有）
+        self._conn.execute(DDL_TEAMS)
+        self._conn.execute(DDL_TEAM_SLOTS)
+        # 兼容老表没有 draw_count
         cols = {r[1] for r in self._conn.execute("PRAGMA table_info(players)").fetchall()}
         if "draw_count" not in cols:
             self._conn.execute("ALTER TABLE players ADD COLUMN draw_count INTEGER DEFAULT 0;")
@@ -68,16 +88,75 @@ class SQLitePlayerRepository(PlayerRepositoryPort):
               p.farm_level, p.bank_level, p.quarry_level, p.barracks_level, p.draw_count))
         self._conn.commit()
 
-    # —— 角色 API —— #
-    def list_owned_char_names(self, user_id: str) -> Set[str]:
-        cur = self._conn.execute("SELECT name FROM player_characters WHERE user_id=?", (user_id,))
-        return {r[0] for r in cur.fetchall()}
+    # === 角色收集/等级 ===
+    def list_owned_char_names(self, user_id: str):
+        cur = self._conn.execute("SELECT name FROM player_chars WHERE user_id=?", (user_id,))
+        return [r[0] for r in cur.fetchall()]
 
-    def add_character(self, user_id: str, char_name: str, level: int, obtained_at: int) -> None:
-        self._conn.execute("""
-        INSERT OR IGNORE INTO player_characters(user_id,name,level,obtained_at)
-        VALUES(?,?,?,?)
-        """, (user_id, char_name, level, obtained_at))
+    def has_char(self, user_id: str, name: str) -> bool:
+        cur = self._conn.execute("SELECT 1 FROM player_chars WHERE user_id=? AND name=? LIMIT 1", (user_id, name))
+        return cur.fetchone() is not None
+
+    def add_char(self, user_id: str, name: str, level: int = 1) -> None:
+        self._conn.execute(
+            "INSERT OR IGNORE INTO player_chars(user_id,name,level) VALUES(?,?,?)",
+            (user_id, name, level)
+        )
+        self._conn.commit()
+
+    def get_char_level(self, user_id: str, name: str):
+        cur = self._conn.execute("SELECT level FROM player_chars WHERE user_id=? AND name=?", (user_id, name))
+        r = cur.fetchone()
+        return None if r is None else int(r[0])
+
+    def set_char_level(self, user_id: str, name: str, level: int):
+        self._conn.execute("UPDATE player_chars SET level=? WHERE user_id=? AND name=?", (level, user_id, name))
+        self._conn.commit()
+
+    # === 队伍 ===
+    def ensure_teams(self, user_id: str, team_count: int, slots: int):
+        # 创建 1..team_count 的 team 与 1..slots 的空位
+        for t in range(1, team_count + 1):
+            self._conn.execute(
+                "INSERT OR IGNORE INTO teams(user_id,team_no,soldiers) VALUES(?,?,0)",
+                (user_id, t)
+            )
+            for s in range(1, slots + 1):
+                self._conn.execute(
+                    "INSERT OR IGNORE INTO team_slots(user_id,team_no,slot_idx,char_name) VALUES(?,?,?,NULL)",
+                    (user_id, t, s)
+                )
+        self._conn.commit()
+
+    def list_team_slots(self, user_id: str, team_no: int):
+        cur = self._conn.execute(
+            "SELECT slot_idx, char_name FROM team_slots WHERE user_id=? AND team_no=? ORDER BY slot_idx",
+            (user_id, team_no)
+        )
+        return [(int(r[0]), r[1]) for r in cur.fetchall()]
+
+    def set_team_slot(self, user_id: str, team_no: int, slot_idx: int, char_name: str | None):
+        self._conn.execute(
+            "UPDATE team_slots SET char_name=? WHERE user_id=? AND team_no=? AND slot_idx=?",
+            (char_name, user_id, team_no, slot_idx)
+        )
+        self._conn.commit()
+
+    def find_char_team(self, user_id: str, name: str):
+        cur = self._conn.execute(
+            "SELECT team_no, slot_idx FROM team_slots WHERE user_id=? AND char_name=? LIMIT 1",
+            (user_id, name)
+        )
+        r = cur.fetchone()
+        return None if r is None else (int(r[0]), int(r[1]))
+
+    def get_team_soldiers(self, user_id: str, team_no: int) -> int:
+        cur = self._conn.execute("SELECT soldiers FROM teams WHERE user_id=? AND team_no=?", (user_id, team_no))
+        r = cur.fetchone()
+        return 0 if r is None else int(r[0])
+
+    def set_team_soldiers(self, user_id: str, team_no: int, soldiers: int):
+        self._conn.execute("UPDATE teams SET soldiers=? WHERE user_id=? AND team_no=?", (soldiers, user_id, team_no))
         self._conn.commit()
 
     def close(self):
