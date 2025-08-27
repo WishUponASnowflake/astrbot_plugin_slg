@@ -41,6 +41,65 @@ class HexPipelinePlugin(Star):
             yield event.plain_result("还没加入。先用：/slg 加入")
             return
 
+        # ===== 同盟 =====
+        if subcmd in ["同盟", "联盟"]:
+            # 二级子命令：创建/加入/成员/列表/我的
+            action = str(arg1).strip() if arg1 is not None else ""
+            if not action or action in ["帮助", "help", "?","？"]:
+                yield event.plain_result("用法：\n"
+                                         "  slg 同盟 创建 名称\n"
+                                         "  slg 同盟 加入 名称\n"
+                                         "  slg 同盟 成员 [名称]    # 不填则查看自己所在同盟成员\n"
+                                         "  slg 同盟 列表")
+                return
+
+            if action == "创建":
+                # 要求已注册
+                if not self.res.get_or_none(uid):
+                    yield event.plain_result("还没加入。先用：/slg 加入"); return
+                nm = str(arg2).strip() if arg2 is not None else ""
+                ok, msg = self.container.alliance_service.create(uid, nm)
+                yield event.plain_result(msg)
+                return
+
+            if action == "加入":
+                if not self.res.get_or_none(uid):
+                    yield event.plain_result("还没加入。先用：/slg 加入"); return
+                nm = str(arg2).strip() if arg2 is not None else ""
+                ok, msg = self.container.alliance_service.join(uid, nm)
+                yield event.plain_result(msg)
+                return
+
+            if action in ["成员", "成员列表"]:
+                nm = str(arg2).strip() if arg2 is not None else ""
+                if nm:
+                    ok, title, ms = self.container.alliance_service.members(nm)
+                else:
+                    ok, title, ms = self.container.alliance_service.my_members(uid)
+                if not ok:
+                    yield event.plain_result(title)
+                    return
+                lines = [f"【{title}】成员（{len(ms)}人）:"]
+                for m in ms:
+                    role = "领袖" if m["role"] == "leader" else "成员"
+                    lines.append(f"- {m['user_id']}（{role}）")
+                yield event.plain_result("\n".join(lines))
+                return
+
+            if action in ["列表", "所有", "排行"]:
+                allys = self.container.alliance_service.list_all()
+                if not allys:
+                    yield event.plain_result("当前没有任何同盟")
+                    return
+                lines = ["同盟列表："]
+                for a in allys:
+                    lines.append(f"- {a['name']} 领袖:{a['leader_user_id']} 人数:{a['members']}")
+                yield event.plain_result("\n".join(lines))
+                return
+
+            yield event.plain_result("未知子命令。同盟用法：创建/加入/成员/列表")
+            return
+
         if subcmd in ["资源", "状态"]:
             # 懒结算
             p = self.res.settle(p)

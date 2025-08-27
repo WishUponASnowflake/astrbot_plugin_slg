@@ -19,19 +19,21 @@ ResourceService = _res_mod.ResourceService
 print(f"[SLG] ResourceService origin: {_res_mod.__file__}")
 
 from ..domain.services_team import TeamService # 新增
+from ..domain.services_alliance import AllianceService
 
 PLUGIN_NS = "astrbot_plugin_slg"
 
 class Container:
-    def __init__(self, map_service, state_service, pipeline, hookbus, assets, res_service, gacha_service, team_service): # 修改
+    def __init__(self, map_service, state_service, pipeline, hookbus, assets, res_service, chars, team_service, alliance_service):
         self.map_service = map_service
         self.state_service = state_service
         self.pipeline = pipeline
         self.hookbus = hookbus
         self.assets = assets
         self.res_service = res_service
-        self.gacha_service = gacha_service
-        self.team_service = team_service # 新增
+        self.chars = chars
+        self.team_service = team_service
+        self.alliance_service = alliance_service
         self.build_map_html = None
 
 def _data_root(context) -> Path:
@@ -76,7 +78,8 @@ def build_container(context, config=None) -> Container:
     # 固定落在 data/plugin_data/astrbot_plugin_slg
     player_repo = SQLitePlayerRepository(db_path=data_root / "players.sqlite3")
     res_service = ResourceService(player_repo)
-    team_service = TeamService(player_repo) # 新增
+    team_service = TeamService(player_repo)
+    ally_service = AllianceService(player_repo)    # ← 新增
 
     state_repo = SQLiteStateRepository(db_path=data_root / "state.sqlite3")
     map_provider = JsonMapProvider(_resolve_map_json())
@@ -91,9 +94,9 @@ def build_container(context, config=None) -> Container:
 
     # 角色池
     pool = CharacterProvider(_resolve_char_json()).load_all()
-    gacha = GachaService(player_repo, res_service, pool)
+    chars = GachaService(player_repo, res_service, pool)
 
-    c = Container(map_service, state_service, pipeline, hookbus, assets, res_service, gacha, team_service) # 修改
+    c = Container(map_service, state_service, pipeline, hookbus, assets, res_service, chars, team_service, ally_service)
     c.build_map_html = lambda: build_map_html(map_service.graph(), state_service.get_line_progress, assets)
     print(f"[SLG] data_root = {data_root}")
     return c

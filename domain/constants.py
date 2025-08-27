@@ -77,3 +77,6 @@ CHAR_LEVEL_UP_COST_RANGE = {
     "stone":  ( 0,   0),
     "troops": (10,  700),
 }
+
+# === 同盟 ===
+ALLIANCE_MAX_MEMBERS = 20

@@ -44,6 +44,26 @@ CREATE TABLE IF NOT EXISTS team_slots(
 );
 """
 
+DDL_ALLIANCES = """
+CREATE TABLE IF NOT EXISTS alliances(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT UNIQUE,
+  leader_user_id TEXT,
+  created_at INTEGER
+);
+"""
+
+DDL_ALLIANCE_MEMBERS = """
+CREATE TABLE IF NOT EXISTS alliance_members(
+  alliance_id INTEGER,
+  user_id TEXT UNIQUE,
+  role TEXT,             -- 'leader' or 'member'
+  joined_at INTEGER,
+  PRIMARY KEY(user_id),
+  FOREIGN KEY(alliance_id) REFERENCES alliances(id)
+);
+"""
+
 class SQLitePlayerRepository(PlayerRepositoryPort):
     def __init__(self, db_path: Path):
         self._db_path = Path(db_path)
@@ -57,6 +77,8 @@ class SQLitePlayerRepository(PlayerRepositoryPort):
         self._conn.execute(DDL_CHARS)
         self._conn.execute(DDL_TEAMS)
         self._conn.execute(DDL_TEAM_SLOTS)
+        self._conn.execute(DDL_ALLIANCES)
+        self._conn.execute(DDL_ALLIANCE_MEMBERS)
         # 兼容老表没有 draw_count
         cols = {r[1] for r in self._conn.execute("PRAGMA table_info(players)").fetchall()}
         if "draw_count" not in cols:
@@ -162,3 +184,59 @@ class SQLitePlayerRepository(PlayerRepositoryPort):
     def close(self):
         try: self._conn.close()
         except: pass
+
+    # ======= 同盟：查询/创建/加入/成员 =======
+    def get_alliance_by_name(self, name: str):
+        cur = self._conn.execute("SELECT id,name,leader_user_id,created_at FROM alliances WHERE name=?", (name,))
+        r = cur.fetchone()
+        return None if r is None else dict(r)
+
+    def create_alliance(self, name: str, leader_user_id: str, created_at: int) -> int:
+        cur = self._conn.execute(
+            "INSERT INTO alliances(name,leader_user_id,created_at) VALUES(?,?,?)",
+            (name, leader_user_id, created_at)
+        )
+        self._conn.commit()
+        return int(cur.lastrowid)
+
+    def get_user_alliance(self, user_id: str):
+        cur = self._conn.execute("""
+        SELECT a.id,a.name,a.leader_user_id,a.created_at, m.role, m.joined_at
+        FROM alliance_members m JOIN alliances a ON a.id=m.alliance_id
+        WHERE m.user_id=?
+        """, (user_id,))
+        r = cur.fetchone()
+        return None if r is None else dict(r)
+
+    def add_member_to_alliance(self, alliance_id: int, user_id: str, role: str, joined_at: int):
+        self._conn.execute(
+            "INSERT OR REPLACE INTO alliance_members(alliance_id,user_id,role,joined_at) VALUES(?,?,?,?)",
+            (alliance_id, user_id, role, joined_at)
+        )
+        self._conn.commit()
+
+    def remove_member_from_alliance(self, user_id: str):
+        self._conn.execute("DELETE FROM alliance_members WHERE user_id=?", (user_id,))
+        self._conn.commit()
+
+    def count_alliance_members(self, alliance_id: int) -> int:
+        cur = self._conn.execute("SELECT COUNT(1) FROM alliance_members WHERE alliance_id=?", (alliance_id,))
+        return int(cur.fetchone()[0])
+
+    def list_alliances(self):
+        cur = self._conn.execute("""
+        SELECT a.id,a.name,a.leader_user_id,a.created_at, COUNT(m.user_id) AS members
+        FROM alliances a LEFT JOIN alliance_members m ON a.id=m.alliance_id
+        GROUP BY a.id
+        ORDER BY members DESC, a.id ASC
+        """)
+        return [dict(r) for r in cur.fetchall()]
+
+    def list_alliance_members(self, alliance_id: int):
+        cur = self._conn.execute("""
+        SELECT user_id, role, joined_at
+        FROM alliance_members
+        WHERE alliance_id=?
+        ORDER BY CASE role WHEN 'leader' THEN 0 ELSE 1 END, joined_at ASC
+        """, (alliance_id,))
+        return [dict(r) for r in cur.fetchall()]
