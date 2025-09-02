@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Dict, Tuple
 from ..domain.entities import MapGraph, City
 
+
 class JsonMapProvider:
     def __init__(self, json_path: Path):
         self._json_path = Path(json_path)

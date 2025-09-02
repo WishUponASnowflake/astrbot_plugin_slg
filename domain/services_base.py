@@ -1,9 +1,11 @@
 # domain/services_base.py
 from __future__ import annotations
-import random, time
-from typing import Tuple, Optional
+import random
+import time
+from typing import Tuple
 
 ALLOWED_PROVINCES = {"益", "扬", "冀", "兖"}
+
 
 class BaseService:
     """
@@ -12,13 +14,18 @@ class BaseService:
       - map_service：需要 graph()，且 graph().cities 是 {name: City}，
                      City 需有 name, province, x, y 属性（与你地图里用的 City 定义一致）
     """
+
     def __init__(self, repo, map_service):
         self._repo = repo
         self._map = map_service
 
     def _candidate_cities(self):
         g = self._map.graph()
-        return [c for c in g.cities.values() if getattr(c, "province", None) in ALLOWED_PROVINCES]
+        return [
+            c
+            for c in g.cities.values()
+            if getattr(c, "province", None) in ALLOWED_PROVINCES
+        ]
 
     def _city_by_name(self, name: str):
         g = self._map.graph()
@@ -33,13 +40,14 @@ class BaseService:
         if not cand:
             return False, "没有可用的四州城市，无法分配基地"
         c = random.choice(cand)
-        x, y = self._map.graph().positions.get(c.name, (0, 0)) # 获取坐标
+        x, y = self._map.graph().positions.get(c.name, (0, 0))  # 获取坐标
         self._repo.set_base(user_id, c.name, int(x), int(y))
         return True, f"已为你分配基地：{c.name}（{int(x)},{int(y)}）"
 
     @staticmethod
     def _same_local_day(ts1: int, ts2: int) -> bool:
         import time
+
         d1 = time.localtime(ts1)
         d2 = time.localtime(ts2)
         return (d1.tm_year, d1.tm_yday) == (d2.tm_year, d2.tm_yday)
@@ -56,10 +64,13 @@ class BaseService:
         if not c:
             return False, f"不存在的城市：{target_city_name}"
         if getattr(c, "province", None) not in ALLOWED_PROVINCES:
-            return False, f"只能迁到四州城市（益/扬/冀/兖），{target_city_name} 不在范围内"
+            return (
+                False,
+                f"只能迁到四州城市（益/扬/冀/兖），{target_city_name} 不在范围内",
+            )
 
         # 设置基地并记录时间
-        x, y = self._map.graph().positions.get(c.name, (0, 0)) # 获取坐标
+        x, y = self._map.graph().positions.get(c.name, (0, 0))  # 获取坐标
         self._repo.set_base(user_id, c.name, int(x), int(y))
         self._repo.set_last_move_at(user_id, now)
         return True, f"迁城成功：{c.name}（{int(x)},{int(y)}）"

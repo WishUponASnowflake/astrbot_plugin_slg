@@ -1,7 +1,8 @@
 import time
-from typing import Tuple, List, Dict, Optional
+from typing import Tuple, List, Dict
 from .ports import PlayerRepositoryPort
 from .constants import ALLIANCE_MAX_MEMBERS
+
 
 class AllianceService:
     def __init__(self, repo: PlayerRepositoryPort):

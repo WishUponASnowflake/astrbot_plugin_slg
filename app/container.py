@@ -1,7 +1,5 @@
 # app/container.py
 from pathlib import Path
-from typing import Any
-from inspect import signature
 
 from ..domain.services import MapService, StateService
 from ..infra.sqlite_repo import SQLiteStateRepository
@@ -15,21 +13,34 @@ from ..infra.sqlite_player_repo import SQLitePlayerRepository
 from ..infra.character_provider import CharacterProvider
 from ..domain.services_gacha import GachaService
 from ..domain import services_resources as _res_mod
+from ..domain.services_team import TeamService  # 新增
+from ..domain.services_alliance import AllianceService
+from ..domain.services_battle import BattleService  # 新增
+from ..domain.services_base import BaseService  # 新增
+from ..domain.services_alliance_siege import AllianceSiegeService  # 新增
+
 ResourceService = _res_mod.ResourceService
 print(f"[SLG] ResourceService origin: {_res_mod.__file__}")
 
-from ..domain.services_team import TeamService # 新增
-from ..domain.services_alliance import AllianceService
-from ..domain.services_battle import BattleService # 新增
-from ..domain.services_base import BaseService # 新增
-from ..domain.services_alliance_siege import AllianceSiegeService # 新增
-
 PLUGIN_NS = "astrbot_plugin_slg"
 
+
 class Container:
-    def __init__(self, map_service, state_service, pipeline, hookbus, assets,
-                 res_service, chars, team_service, alliance_service,
-                 battle_service, base_service, siege_service):   # ← 新增 siege_service
+    def __init__(
+        self,
+        map_service,
+        state_service,
+        pipeline,
+        hookbus,
+        assets,
+        res_service,
+        chars,
+        team_service,
+        alliance_service,
+        battle_service,
+        base_service,
+        siege_service,
+    ):  # ← 新增 siege_service
         self.map_service = map_service
         self.state_service = state_service
         self.pipeline = pipeline
@@ -39,10 +50,11 @@ class Container:
         self.chars = chars
         self.team_service = team_service
         self.alliance_service = alliance_service
-        self.battle_service = battle_service # 新增
+        self.battle_service = battle_service  # 新增
         self.base_service = base_service
-        self.siege_service = siege_service # 新增
+        self.siege_service = siege_service  # 新增
         self.build_map_html = None
+
 
 def _data_root(context) -> Path:
     # 不用 resolve，遵循 AstrBot 相对 data/ 的做法
@@ -51,6 +63,7 @@ def _data_root(context) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     _maybe_migrate_old(base, root)  # 可选：把你之前的 db 挪过来
     return root
+
 
 def _maybe_migrate_old(base: Path, new_root: Path):
     # 之前我们用过 data/plugins/astrbot_plugin_slg，这里顺手迁一次
@@ -68,17 +81,21 @@ def _maybe_migrate_old(base: Path, new_root: Path):
         except Exception as e:
             print(f"[SLG] migrate {src} failed: {e}")
 
+
 def _resolve_map_json() -> Path:
     # 插件根/map/three_kingdoms.json（不玩什么“root 变量”，用相对本文件）
     return Path(__file__).resolve().parents[1] / "map" / "three_kingdoms.json"
 
+
 def _resolve_char_json() -> Path:
     return Path(__file__).resolve().parents[1] / "characters" / "character.json"
+
 
 def _resolve_picture_dir() -> Path:
     # 不用所谓“plugin root 变量”，就从文件相对位置找 picture/
     # app/container.py -> 插件根目录 -> picture/
     return Path(__file__).resolve().parents[1] / "picture"
+
 
 def build_container(context, config=None, llm_provider_id: str = None) -> Container:
     data_root = _data_root(context)
@@ -87,7 +104,7 @@ def build_container(context, config=None, llm_provider_id: str = None) -> Contai
     player_repo = SQLitePlayerRepository(db_path=data_root / "players.sqlite3")
     res_service = ResourceService(player_repo)
     team_service = TeamService(player_repo)
-    ally_service = AllianceService(player_repo)    # ← 新增
+    ally_service = AllianceService(player_repo)  # ← 新增
 
     state_repo = SQLiteStateRepository(db_path=data_root / "state.sqlite3")
     map_provider = JsonMapProvider(_resolve_map_json())
@@ -104,13 +121,28 @@ def build_container(context, config=None, llm_provider_id: str = None) -> Contai
     pool = CharacterProvider(_resolve_char_json()).load_all()
     chars = GachaService(player_repo, res_service, pool)
 
-    battle_service = BattleService(player_repo, pool, context, llm_provider_id)  # ← 新增，并传递 llm_provider_id
+    battle_service = BattleService(
+        player_repo, pool, context, llm_provider_id
+    )  # ← 新增，并传递 llm_provider_id
     base_service = BaseService(player_repo, map_service)  # ← 新增
-    siege_service = AllianceSiegeService(player_repo, map_service)   # ← 新增
+    siege_service = AllianceSiegeService(player_repo, map_service)  # ← 新增
 
-    c = Container(map_service, state_service, pipeline, hookbus, assets,
-                  res_service, chars, team_service, ally_service,
-                  battle_service, base_service, siege_service)
-    c.build_map_html = lambda: build_map_html(map_service.graph(), state_service.get_line_progress, assets)
+    c = Container(
+        map_service,
+        state_service,
+        pipeline,
+        hookbus,
+        assets,
+        res_service,
+        chars,
+        team_service,
+        ally_service,
+        battle_service,
+        base_service,
+        siege_service,
+    )
+    c.build_map_html = lambda: build_map_html(
+        map_service.graph(), state_service.get_line_progress, assets
+    )
     print(f"[SLG] data_root = {data_root}")
     return c

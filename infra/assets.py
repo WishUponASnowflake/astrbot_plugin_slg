@@ -10,6 +10,7 @@ _MIME = {
     ".jpeg": "image/jpeg",
 }
 
+
 def _to_data_uri(p: Path) -> Optional[str]:
     suf = p.suffix.lower()
     mime = _MIME.get(suf)
@@ -19,6 +20,7 @@ def _to_data_uri(p: Path) -> Optional[str]:
     enc = base64.b64encode(b).decode("ascii")
     return f"data:{mime};base64,{enc}"
 
+
 def _find_one(dir: Path, names: Iterable[str]) -> Optional[Path]:
     for n in names:
         p = dir / n
@@ -26,13 +28,16 @@ def _find_one(dir: Path, names: Iterable[str]) -> Optional[Path]:
             return p
     return None
 
+
 def load_assets(picture_dir: Path, city_names: Iterable[str]) -> Dict:
     """从 picture/ 读取资源并转成 data URI"""
     picture_dir = picture_dir.resolve()
     assets = {"bg": None, "defaults": {}, "cities": {}}
 
     # 背景：bg.png 优先，其次 bg.jpg，或 background.*
-    bgp = _find_one(picture_dir, ["bg.png", "bg.jpg", "background.png", "background.jpg"])
+    bgp = _find_one(
+        picture_dir, ["bg.png", "bg.jpg", "background.png", "background.jpg"]
+    )
     if bgp:
         assets["bg"] = _to_data_uri(bgp)
 
@@ -43,7 +48,9 @@ def load_assets(picture_dir: Path, city_names: Iterable[str]) -> Dict:
 
     assets["defaults"]["CITY"] = _pick("CITY.png", "CITY.jpg")
     assets["defaults"]["PASS"] = _pick("PASS.png", "PASS.jpg")
-    assets["defaults"]["RESOURCE"] = _pick("RESOURCE.png", "RESOURCE.jpg", "default.png", "default.jpg")
+    assets["defaults"]["RESOURCE"] = _pick(
+        "RESOURCE.png", "RESOURCE.jpg", "default.png", "default.jpg"
+    )
     assets["defaults"]["DEFAULT"] = assets["defaults"]["RESOURCE"]
 
     # 城市专属：优先 PNG，再 JPG

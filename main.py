@@ -5,7 +5,8 @@ from datetime import datetime, timedelta
 import time
 
 from .app.container import build_container
-from .domain.constants import RESOURCE_CN, BUILDING_ALIASES, BUILDING_TO_RESOURCE, DrawResultStatus
+from .domain.constants import BUILDING_ALIASES, BUILDING_TO_RESOURCE, DrawResultStatus
+
 
 @register("astrbot_plugin_slg", "you", "SLG Map + Resource", "0.3.0", "repo_url")
 class HexPipelinePlugin(Star):
@@ -26,18 +27,22 @@ class HexPipelinePlugin(Star):
 
     @slg_group.command("加入", alias={"join"})
     async def slg_join(self, event: AstrMessageEvent):
-        uid = str(event.get_sender_id()); name = event.get_sender_name() or uid
-        p = self.res.register(uid, name)
-        self.container.base_service.ensure_base(uid) # 新增：加入时自动分配基地
-        yield event.plain_result(f"已加入。四建筑默认1级，开始自动产出。")
+        uid = str(event.get_sender_id())
+        name = event.get_sender_name() or uid
+        self.res.register(uid, name)
+        self.container.base_service.ensure_base(uid)  # 新增：加入时自动分配基地
+        yield event.plain_result("已加入。四建筑默认1级，开始自动产出。")
 
     @slg_group.command("帮助", alias={"help", "？", "?"})
     async def slg_help(self, event: AstrMessageEvent):
-        yield event.plain_result("用法：/slg 加入 | 资源 | 升级 <农田/钱庄/采石场/军营> | 抽卡 <次数> | 基地 | 迁城 <城市名>")
+        yield event.plain_result(
+            "用法：/slg 加入 | 资源 | 升级 <农田/钱庄/采石场/军营> | 抽卡 <次数> | 基地 | 迁城 <城市名>"
+        )
 
     @slg_group.command("进军", alias={"攻打", "开战"})
     async def slg_march(self, event: AstrMessageEvent, target: str):
-        uid = str(event.get_sender_id()); name = event.get_sender_name() or uid
+        uid = str(event.get_sender_id())
+        event.get_sender_name() or uid
         if not target.isdigit():
             yield event.plain_result("用法：slg 进军 对方ID（数字）")
             return
@@ -45,10 +50,12 @@ class HexPipelinePlugin(Star):
 
         p_me = self.container.res_service.get_or_none(uid)
         if not p_me:
-            yield event.plain_result("你还没加入游戏，先执行：slg 加入"); return
+            yield event.plain_result("你还没加入游戏，先执行：slg 加入")
+            return
         p_enemy = self.container.res_service.get_or_none(defender_uid)
         if not p_enemy:
-            yield event.plain_result("对方未加入游戏"); return
+            yield event.plain_result("对方未加入游戏")
+            return
 
         # 保证队伍表存在
         self.container.team_service.ensure_teams(uid)
@@ -57,9 +64,11 @@ class HexPipelinePlugin(Star):
         a_slots = self.container.res_service._repo.list_team_slots(uid, 1)
         b_slots = self.container.res_service._repo.list_team_slots(defender_uid, 1)
         if not any(n for _, n in a_slots):
-            yield event.plain_result("你的队伍1没有任何上阵角色"); return
+            yield event.plain_result("你的队伍1没有任何上阵角色")
+            return
         if not any(n for _, n in b_slots):
-            yield event.plain_result("对方队伍1没有任何上阵角色"); return
+            yield event.plain_result("对方队伍1没有任何上阵角色")
+            return
 
         try:
             result = await self.container.battle_service.simulate(uid, defender_uid)
@@ -69,11 +78,11 @@ class HexPipelinePlugin(Star):
 
         winner = result["winner"]
         probA, probB = result["prob"]["A"], result["prob"]["B"]
-        label  = "我方胜" if winner=="A" else "对方胜"
+        label = "我方胜" if winner == "A" else "对方胜"
         yield event.plain_result(
             f"战斗结果：{label}\n"
-            f"胜率估计：我方 {int(probA*100)}% / 对方 {int(probB*100)}%\n"
-            f"评估信心：{result.get('confidence','中')}\n"
+            f"胜率估计：我方 {int(probA * 100)}% / 对方 {int(probB * 100)}%\n"
+            f"评估信心：{result.get('confidence', '中')}\n"
             f"注意：本功能为临时测试，不结算战损。"
         )
 
@@ -84,23 +93,28 @@ class HexPipelinePlugin(Star):
 
     @alliance_group.command("创建")
     async def alliance_create(self, event: AstrMessageEvent, name: str):
-        uid = str(event.get_sender_id()); name = event.get_sender_name() or uid
+        uid = str(event.get_sender_id())
+        name = event.get_sender_name() or uid
         if not self.res.get_or_none(uid):
-            yield event.plain_result("还没加入。先用：/slg 加入"); return
+            yield event.plain_result("还没加入。先用：/slg 加入")
+            return
         ok, msg = self.container.alliance_service.create(uid, name)
         yield event.plain_result(msg)
 
     @alliance_group.command("加入")
     async def alliance_join(self, event: AstrMessageEvent, name: str):
-        uid = str(event.get_sender_id()); name = event.get_sender_name() or uid
+        uid = str(event.get_sender_id())
+        name = event.get_sender_name() or uid
         if not self.res.get_or_none(uid):
-            yield event.plain_result("还没加入。先用：/slg 加入"); return
+            yield event.plain_result("还没加入。先用：/slg 加入")
+            return
         ok, msg = self.container.alliance_service.join(uid, name)
         yield event.plain_result(msg)
 
     @alliance_group.command("成员", alias={"成员列表"})
     async def alliance_members(self, event: AstrMessageEvent, name: str = None):
-        uid = str(event.get_sender_id()); name = event.get_sender_name() or uid
+        uid = str(event.get_sender_id())
+        name = event.get_sender_name() or uid
         if name:
             ok, title, ms = self.container.alliance_service.members(name)
         else:
@@ -122,7 +136,9 @@ class HexPipelinePlugin(Star):
             return
         lines = ["同盟列表："]
         for a in allys:
-            lines.append(f"- {a['name']} 领袖:{a['leader_user_id']} 人数:{a['members']}")
+            lines.append(
+                f"- {a['name']} 领袖:{a['leader_user_id']} 人数:{a['members']}"
+            )
         yield event.plain_result("\n".join(lines))
 
     @staticmethod
@@ -157,12 +173,16 @@ class HexPipelinePlugin(Star):
         uid = str(event.get_sender_id())
         start_at = HexPipelinePlugin._parse_time_local(when)
         if not start_at:
-            yield event.plain_result("时间格式错误。示例：'2025-09-02 20:30' 或 '20:30'")
+            yield event.plain_result(
+                "时间格式错误。示例：'2025-09-02 20:30' 或 '20:30'"
+            )
             return
         if start_at - int(time.time()) < 10 * 60:
             yield event.plain_result("预定时间需要在10分钟之后")
             return
-        ok, msg = self.container.siege_service.schedule_siege(uid, city.strip(), start_at)
+        ok, msg = self.container.siege_service.schedule_siege(
+            uid, city.strip(), start_at
+        )
         yield event.plain_result(msg)
 
     @alliance_group.command("集结")
@@ -187,18 +207,21 @@ class HexPipelinePlugin(Star):
 
     @alliance_group.command("帮助", alias={"help", "?", "？"})
     async def alliance_help(self, event: AstrMessageEvent):
-        yield event.plain_result("用法：\n"
-                                 "  slg 同盟 创建 名称\n"
-                                 "  slg 同盟 加入 名称\n"
-                                 "  slg 同盟 成员 [名称]    # 不填则查看自己所在同盟成员\n"
-                                 "  slg 同盟 列表\n"
-                                 "  slg 同盟 攻城 城市名 时间\n"
-                                 "  slg 同盟 集结\n"
-                                 "  slg 同盟 攻城状态")
+        yield event.plain_result(
+            "用法：\n"
+            "  slg 同盟 创建 名称\n"
+            "  slg 同盟 加入 名称\n"
+            "  slg 同盟 成员 [名称]    # 不填则查看自己所在同盟成员\n"
+            "  slg 同盟 列表\n"
+            "  slg 同盟 攻城 城市名 时间\n"
+            "  slg 同盟 集结\n"
+            "  slg 同盟 攻城状态"
+        )
 
     @slg_group.command("资源", alias={"状态"})
     async def slg_resource_status(self, event: AstrMessageEvent):
-        uid = str(event.get_sender_id()); name = event.get_sender_name() or uid
+        uid = str(event.get_sender_id())
+        event.get_sender_name() or uid
         p = self.res.get_or_none(uid)
         if not p:
             yield event.plain_result("还没加入。先用：/slg 加入")
@@ -206,8 +229,10 @@ class HexPipelinePlugin(Star):
         # 懒结算
         p = self.res.settle(p)
         s = self.res.status(p)
-        lvb = s["level_by_building"]           # 这里用建筑键名
-        prod = s["prod_per_min"]; cap = s["cap"]; cur = s["cur"]
+        lvb = s["level_by_building"]  # 这里用建筑键名
+        prod = s["prod_per_min"]
+        cap = s["cap"]
+        cur = s["cur"]
 
         lines = [
             f"建筑等级：农田{lvb['farm']} 钱庄{lvb['bank']} 采石场{lvb['quarry']} 军营{lvb['barracks']}",
@@ -218,61 +243,95 @@ class HexPipelinePlugin(Star):
 
     @slg_group.command("队伍", alias={"编成", "编队"})
     async def slg_team(self, event: AstrMessageEvent, team_no: int = None):
-        uid = str(event.get_sender_id()); name = event.get_sender_name() or uid
+        uid = str(event.get_sender_id())
+        event.get_sender_name() or uid
         p = self.res.get_or_none(uid)
-        if not p: 
-            yield event.plain_result("还没加入。先用：/slg 加入"); return
+        if not p:
+            yield event.plain_result("还没加入。先用：/slg 加入")
+            return
         self.container.team_service.ensure_teams(uid)
         if team_no:
             info = self.container.team_service.show_team(uid, team_no)
-            m = "、".join([f"[{x['slot']}]{x['name']}Lv{x['level']}" if x['name'] else f"[{x['slot']}]空"
-                           for x in info["members"]])
-            yield event.plain_result(f"队伍{team_no}：{m}\n兵力 {info['soldiers']}/{info['capacity']}")
+            m = "、".join(
+                [
+                    f"[{x['slot']}]{x['name']}Lv{x['level']}"
+                    if x["name"]
+                    else f"[{x['slot']}]空"
+                    for x in info["members"]
+                ]
+            )
+            yield event.plain_result(
+                f"队伍{team_no}：{m}\n兵力 {info['soldiers']}/{info['capacity']}"
+            )
         else:
             infos = self.container.team_service.list_teams(uid)
             lines = []
             for info in infos:
-                m = "、".join([f"[{x['slot']}]{x['name']}Lv{x['level']}" if x['name'] else f"[{x['slot']}]空"
-                               for x in info["members"]])
-                lines.append(f"队伍{info['team_no']}：{m} | 兵 {info['soldiers']}/{info['capacity']}")
+                m = "、".join(
+                    [
+                        f"[{x['slot']}]{x['name']}Lv{x['level']}"
+                        if x["name"]
+                        else f"[{x['slot']}]空"
+                        for x in info["members"]
+                    ]
+                )
+                lines.append(
+                    f"队伍{info['team_no']}：{m} | 兵 {info['soldiers']}/{info['capacity']}"
+                )
             yield event.plain_result("\n".join(lines))
 
     @slg_group.command("上阵", alias={"加入队伍"})
-    async def slg_assign_char(self, event: AstrMessageEvent, char_name: str, team_no: int, slot_idx: int = None):
-        uid = str(event.get_sender_id()); name = event.get_sender_name() or uid
+    async def slg_assign_char(
+        self,
+        event: AstrMessageEvent,
+        char_name: str,
+        team_no: int,
+        slot_idx: int = None,
+    ):
+        uid = str(event.get_sender_id())
+        event.get_sender_name() or uid
         p = self.res.get_or_none(uid)
-        if not p: 
-            yield event.plain_result("还没加入。先用：/slg 加入"); return
+        if not p:
+            yield event.plain_result("还没加入。先用：/slg 加入")
+            return
         if not char_name or not team_no:
-            yield event.plain_result("用法：/slg 上阵 角色名 队伍编号 [槽位1-3]"); return
+            yield event.plain_result("用法：/slg 上阵 角色名 队伍编号 [槽位1-3]")
+            return
         try:
             team_no = int(team_no)
-        except:
-            yield event.plain_result("队伍编号必须是 1~3"); return
+        except (ValueError, TypeError):
+            yield event.plain_result("队伍编号必须是 1~3")
+            return
         self.container.team_service.ensure_teams(uid)
         ok, msg = self.container.team_service.assign(uid, char_name, team_no, slot_idx)
         yield event.plain_result(msg)
 
     @slg_group.command("补兵")
     async def slg_reinforce(self, event: AstrMessageEvent, team_no: int):
-        uid = str(event.get_sender_id()); name = event.get_sender_name() or uid
+        uid = str(event.get_sender_id())
+        event.get_sender_name() or uid
         p = self.res.get_or_none(uid)
-        if not p: 
-            yield event.plain_result("还没加入。先用：/slg 加入"); return
+        if not p:
+            yield event.plain_result("还没加入。先用：/slg 加入")
+            return
         if not team_no:
-            yield event.plain_result("用法：/slg 补兵 队伍编号"); return
+            yield event.plain_result("用法：/slg 补兵 队伍编号")
+            return
         self.container.team_service.ensure_teams(uid)
         ok, msg, p2 = self.container.team_service.reinforce(p, team_no)
         yield event.plain_result(msg)
 
     @slg_group.command("升级")
     async def slg_upgrade(self, event: AstrMessageEvent, target_name: str):
-        uid = str(event.get_sender_id()); name = event.get_sender_name() or uid
+        uid = str(event.get_sender_id())
+        event.get_sender_name() or uid
         p = self.res.get_or_none(uid)
-        if not p: 
-            yield event.plain_result("还没加入。先用：/slg 加入"); return
+        if not p:
+            yield event.plain_result("还没加入。先用：/slg 加入")
+            return
         if not target_name:
-            yield event.plain_result("用法：/slg 升级 <农田|钱庄|采石场|军营|角色名>"); return
+            yield event.plain_result("用法：/slg 升级 <农田|钱庄|采石场|军营|角色名>")
+            return
 
         # 先判断是否建筑
         key = str(target_name).strip()
@@ -288,12 +347,13 @@ class HexPipelinePlugin(Star):
 
     @slg_group.command("抽卡")
     async def slg_gacha(self, event: AstrMessageEvent, times: int = 1):
-        uid = str(event.get_sender_id()); name = event.get_sender_name() or uid
+        uid = str(event.get_sender_id())
+        event.get_sender_name() or uid
         p = self.res.get_or_none(uid)
         if not p:
             yield event.plain_result("还没加入。先用：/slg 加入")
             return
-        
+
         times = max(1, min(50, times))  # 别让你一口气 999
         got, spent, done, status = self.container.gacha_service.draw(p, times)
 
@@ -314,9 +374,14 @@ class HexPipelinePlugin(Star):
                 lines.append("获得：\n- " + "\n- ".join(names))
             # 消耗
             cost_str = []
-            for k in ("gold","grain","stone","troops"):
+            for k in ("gold", "grain", "stone", "troops"):
                 if spent[k] > 0:
-                    cn = {"gold":"金钱","grain":"粮食","stone":"石头","troops":"军队"}[k]
+                    cn = {
+                        "gold": "金钱",
+                        "grain": "粮食",
+                        "stone": "石头",
+                        "troops": "军队",
+                    }[k]
                     cost_str.append(f"{cn}{spent[k]}")
             if cost_str:
                 lines.append("总消耗：" + "，".join(cost_str))
@@ -325,9 +390,15 @@ class HexPipelinePlugin(Star):
 
         # 附加提示：下次单抽价格预览（不收费）
         nxt = p.draw_count + 1
-        cst = self.container.gacha_service.cost_for_draw_index(nxt) if hasattr(self.container.gacha_service, "cost_for_draw_index") else None
+        cst = (
+            self.container.gacha_service.cost_for_draw_index(nxt)
+            if hasattr(self.container.gacha_service, "cost_for_draw_index")
+            else None
+        )
         if cst:
-            lines.append(f"下次单抽费用：金{cst['gold']} 粮{cst['grain']} 石{cst['stone']} 兵{cst['troops']}（前5次免费，6-15线性涨，之后恒定）")
+            lines.append(
+                f"下次单抽费用：金{cst['gold']} 粮{cst['grain']} 石{cst['stone']} 兵{cst['troops']}（前5次免费，6-15线性涨，之后恒定）"
+            )
 
         yield event.plain_result("\n".join(lines))
 
@@ -343,7 +414,7 @@ class HexPipelinePlugin(Star):
             # 关键点：只传 tmpl + data，别给 options 添乱
             url = await self.html_render(
                 tmpl=html,
-                data={},         # 目前没用到变量，留空即可
+                data={},  # 目前没用到变量，留空即可
                 # 不传 options，走默认。默认一般是 png 且不会带 quality
                 # return_url 默认 True，拿到 URL
             )
@@ -353,12 +424,15 @@ class HexPipelinePlugin(Star):
             # 若服务端继续回 text/plain 的错误文本，这里能把原始信息吐出来
             yield event.plain_result(f"HTML渲染失败：{e}")
 
-
-
     @filter.command("slg_map_url")
     async def show_big_map_url(self, event: AstrMessageEvent):
         html = self.container.build_map_html()
-        img_url = await self.html_render(tmpl=html, data={}, return_url=True, options={"type": "png", "full_page": True})
+        img_url = await self.html_render(
+            tmpl=html,
+            data={},
+            return_url=True,
+            options={"type": "png", "full_page": True},
+        )
         yield event.plain_result(f"渲染URL：{img_url}")
 
     @filter.command("line")
@@ -375,13 +449,20 @@ class HexPipelinePlugin(Star):
         parts = []
         for gate, nb in fl.items():
             mi, pr = self.state_svc.get_line_progress(city, gate)
-            parts.append(f"{gate} → {nb} | 里程碑：{mi+1}/3（{['前沿','箭楼','外城门'][mi]}）| 进度：{pr}%")
-        yield event.plain_result(f"{city}（{c.province}州{'·州府' if c.capital else ''}）：\n" + "\n".join(parts))
+            parts.append(
+                f"{gate} → {nb} | 里程碑：{mi + 1}/3（{['前沿', '箭楼', '外城门'][mi]}）| 进度：{pr}%"
+            )
+        yield event.plain_result(
+            f"{city}（{c.province}州{'·州府' if c.capital else ''}）：\n"
+            + "\n".join(parts)
+        )
 
     @filter.command("line_push")
-    async def push_line(self, event: AstrMessageEvent, city: str, gate: str, delta: int):
+    async def push_line(
+        self, event: AstrMessageEvent, city: str, gate: str, delta: int
+    ):
         """占位推进：为某城某门推进 delta%（0-100）"""
-        if gate not in ("北门","东门","西门","南门","西北门"):  # 简易容错
+        if gate not in ("北门", "东门", "西门", "南门", "西北门"):  # 简易容错
             yield event.plain_result(f"门名不合法：{gate}")
             return
         if not self.map_svc.get_city(city):
@@ -393,7 +474,9 @@ class HexPipelinePlugin(Star):
             return
         self.state_svc.push_progress(city, gate, max(0, min(100, int(delta))))
         mi, pr = self.state_svc.get_line_progress(city, gate)
-        yield event.plain_result(f"已推进 {city} {gate} → {nb}，现在：{['前沿','箭楼','外城门'][mi]} {pr}%")
+        yield event.plain_result(
+            f"已推进 {city} {gate} → {nb}，现在：{['前沿', '箭楼', '外城门'][mi]} {pr}%"
+        )
 
     # ====== 你之前的示例命令保留也行（map、neighbor、path、state_*） ======
 

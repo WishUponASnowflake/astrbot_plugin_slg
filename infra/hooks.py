@@ -1,7 +1,8 @@
 # infra/hooks.py
-from typing import Any, Awaitable, Callable, Dict, List
+from typing import Any, Awaitable, Callable, Dict
 
 HookHandler = Callable[[Dict[str, Any]], Awaitable[None]]
+
 
 class HookBus:
     def __init__(self):

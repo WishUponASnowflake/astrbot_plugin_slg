@@ -3,10 +3,15 @@ from __future__ import annotations
 from typing import Dict, List, Tuple, Optional
 from .ports import PlayerRepositoryPort
 from .constants import (
-    TEAM_COUNT, TEAM_SLOTS, TEAM_BASE_TROOPS, TROOPS_PER_LEVEL,
-    CHAR_LEVEL_MAX, CHAR_LEVEL_UP_COST_RANGE
+    TEAM_COUNT,
+    TEAM_SLOTS,
+    TEAM_BASE_TROOPS,
+    TROOPS_PER_LEVEL,
+    CHAR_LEVEL_MAX,
+    CHAR_LEVEL_UP_COST_RANGE,
 )
 from .entities import Player
+
 
 def _linear_cost_at_level(target: int, mn: int, mx: int) -> int:
     """
@@ -14,10 +19,13 @@ def _linear_cost_at_level(target: int, mn: int, mx: int) -> int:
     2 -> mn, 7 -> mx
     """
     lo, hi = 2, CHAR_LEVEL_MAX
-    if target <= lo: return mn
-    if target >= hi: return mx
+    if target <= lo:
+        return mn
+    if target >= hi:
+        return mx
     ratio = (target - lo) / (hi - lo)
     return int(round(mn + (mx - mn) * ratio))
+
 
 class TeamService:
     def __init__(self, repo: PlayerRepositoryPort):
@@ -31,7 +39,7 @@ class TeamService:
         slots = self._repo.list_team_slots(user_id, team_no)
         cap = TEAM_BASE_TROOPS
         for _, name in slots:
-            if not name: 
+            if not name:
                 continue
             lv = self._repo.get_char_level(user_id, name) or 1
             cap += lv * TROOPS_PER_LEVEL
@@ -48,12 +56,19 @@ class TeamService:
                 members.append({"slot": idx, "name": name, "level": lv})
             else:
                 members.append({"slot": idx, "name": None, "level": None})
-        return {"team_no": team_no, "soldiers": soldiers, "capacity": cap, "members": members}
+        return {
+            "team_no": team_no,
+            "soldiers": soldiers,
+            "capacity": cap,
+            "members": members,
+        }
 
     def list_teams(self, user_id: str) -> List[Dict]:
         return [self.show_team(user_id, t) for t in range(1, TEAM_COUNT + 1)]
 
-    def assign(self, user_id: str, char_name: str, team_no: int, slot_idx: Optional[int] = None) -> Tuple[bool, str]:
+    def assign(
+        self, user_id: str, char_name: str, team_no: int, slot_idx: Optional[int] = None
+    ) -> Tuple[bool, str]:
         # 前置：拥有该角色
         if not self._repo.has_char(user_id, char_name):
             return False, f"没有角色：{char_name}"
@@ -104,7 +119,7 @@ class TeamService:
         p.troops -= add
         self._repo.set_team_soldiers(p.user_id, team_no, cur + add)
         self._repo.upsert_player(p)
-        return True, f"队伍{team_no} 补兵 +{add}（{cur+add}/{cap}）", p
+        return True, f"队伍{team_no} 补兵 +{add}（{cur + add}/{cap}）", p
 
     # ---- 角色升级：扣资源，+1 级 ----
     def upgrade_char(self, p: Player, char_name: str) -> Tuple[bool, str, Player]:
@@ -115,22 +130,40 @@ class TeamService:
             return False, f"{char_name} 已达上限 {CHAR_LEVEL_MAX} 级", p
 
         target = lv + 1
-        cost = {r: _linear_cost_at_level(target, *CHAR_LEVEL_UP_COST_RANGE[r]) for r in CHAR_LEVEL_UP_COST_RANGE}
+        cost = {
+            r: _linear_cost_at_level(target, *CHAR_LEVEL_UP_COST_RANGE[r])
+            for r in CHAR_LEVEL_UP_COST_RANGE
+        }
 
         # 余额检查
-        if p.gold < cost["gold"] or p.grain < cost["grain"] or p.stone < cost["stone"] or p.troops < cost["troops"]:
-            return False, (f"资源不足：需 金{cost['gold']} 粮{cost['grain']} 石{cost['stone']} 兵{cost['troops']}，"
-                           f"当前 金{p.gold} 粮{p.grain} 石{p.stone} 兵{p.troops}"), p
+        if (
+            p.gold < cost["gold"]
+            or p.grain < cost["grain"]
+            or p.stone < cost["stone"]
+            or p.troops < cost["troops"]
+        ):
+            return (
+                False,
+                (
+                    f"资源不足：需 金{cost['gold']} 粮{cost['grain']} 石{cost['stone']} 兵{cost['troops']}，"
+                    f"当前 金{p.gold} 粮{p.grain} 石{p.stone} 兵{p.troops}"
+                ),
+                p,
+            )
 
         # 扣费
-        p.gold  -= cost["gold"]
+        p.gold -= cost["gold"]
         p.grain -= cost["grain"]
         p.stone -= cost["stone"]
-        p.troops-= cost["troops"]
+        p.troops -= cost["troops"]
 
         # 升级
         self._repo.set_char_level(p.user_id, char_name, target)
         self._repo.upsert_player(p)
 
         # 如果该角色在某队伍，容量可能上升，但不自动补兵
-        return True, f"{char_name} 升至 {target} 级，花费：金{cost['gold']} 粮{cost['grain']} 石{cost['stone']} 兵{cost['troops']}", p
+        return (
+            True,
+            f"{char_name} 升至 {target} 级，花费：金{cost['gold']} 粮{cost['grain']} 石{cost['stone']} 兵{cost['troops']}",
+            p,
+        )

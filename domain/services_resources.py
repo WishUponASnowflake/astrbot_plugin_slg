@@ -1,12 +1,20 @@
 # domain/services_resources.py
 import time
-from typing import Dict, Tuple
+from typing import Dict
 from .entities import Player
 from .ports import PlayerRepositoryPort
 from .constants import (
-    PRODUCTION_PER_MIN, CAPACITY_PER_LEVEL, BUILDING_TO_RESOURCE, BUILDING_ALIASES,
-    RESOURCE_CN, MAX_LEVEL, MINUTE, UPGRADE_STONE_COST, UPGRADE_RESOURCE_COST
+    PRODUCTION_PER_MIN,
+    CAPACITY_PER_LEVEL,
+    BUILDING_TO_RESOURCE,
+    BUILDING_ALIASES,
+    RESOURCE_CN,
+    MAX_LEVEL,
+    MINUTE,
+    UPGRADE_STONE_COST,
+    UPGRADE_RESOURCE_COST,
 )
+
 
 def _fmt_cost(stone_cost: int, res_type: str, res_cost: int) -> str:
     res_cn = RESOURCE_CN[res_type]
@@ -14,6 +22,7 @@ def _fmt_cost(stone_cost: int, res_type: str, res_cost: int) -> str:
         # 两份石头合并展示更直观
         return f"石头 {stone_cost + res_cost}"
     return f"石头 {stone_cost}，{res_cn} {res_cost}"
+
 
 class ResourceService:
     def __init__(self, repo: PlayerRepositoryPort):
@@ -33,9 +42,18 @@ class ResourceService:
         if p:
             return p
         p = Player(
-            user_id=user_id, nickname=nickname, created_at=now, last_tick=now,
-            grain=0, gold=0, stone=0, troops=0,
-            farm_level=1, bank_level=1, quarry_level=1, barracks_level=1
+            user_id=user_id,
+            nickname=nickname,
+            created_at=now,
+            last_tick=now,
+            grain=0,
+            gold=0,
+            stone=0,
+            troops=0,
+            farm_level=1,
+            bank_level=1,
+            quarry_level=1,
+            barracks_level=1,
         )
         self._repo.upsert_player(p)
         return p
@@ -48,15 +66,17 @@ class ResourceService:
             v = int(x)
         except Exception:
             v = 1
-        if v < 1: v = 1
-        if v > MAX_LEVEL: v = MAX_LEVEL
+        if v < 1:
+            v = 1
+        if v > MAX_LEVEL:
+            v = MAX_LEVEL
         return v
 
     def _levels(self, p: Player) -> Dict[str, int]:
         return {
-            "grain":  self._san_level(getattr(p, "farm_level", 1)),
-            "gold":   self._san_level(getattr(p, "bank_level", 1)),
-            "stone":  self._san_level(getattr(p, "quarry_level", 1)),
+            "grain": self._san_level(getattr(p, "farm_level", 1)),
+            "gold": self._san_level(getattr(p, "bank_level", 1)),
+            "stone": self._san_level(getattr(p, "quarry_level", 1)),
             "troops": self._san_level(getattr(p, "barracks_level", 1)),
         }
 
@@ -81,21 +101,24 @@ class ResourceService:
 
         lv = self._levels(p)
         gain = {
-            "grain":  PRODUCTION_PER_MIN["grain"][lv["grain"]]   * minutes,
-            "gold":   PRODUCTION_PER_MIN["gold"][lv["gold"]]     * minutes,
-            "stone":  PRODUCTION_PER_MIN["stone"][lv["stone"]]   * minutes,
+            "grain": PRODUCTION_PER_MIN["grain"][lv["grain"]] * minutes,
+            "gold": PRODUCTION_PER_MIN["gold"][lv["gold"]] * minutes,
+            "stone": PRODUCTION_PER_MIN["stone"][lv["stone"]] * minutes,
             "troops": PRODUCTION_PER_MIN["troops"][lv["troops"]] * minutes,
         }
         new_vals = {
-            "grain":  (p.grain  or 0) + gain["grain"],
-            "gold":   (p.gold   or 0) + gain["gold"],
-            "stone":  (p.stone  or 0) + gain["stone"],
+            "grain": (p.grain or 0) + gain["grain"],
+            "gold": (p.gold or 0) + gain["gold"],
+            "stone": (p.stone or 0) + gain["stone"],
             "troops": (p.troops or 0) + gain["troops"],
         }
         new_vals = self._apply_cap(new_vals, lv)
 
         p.grain, p.gold, p.stone, p.troops = (
-            new_vals["grain"], new_vals["gold"], new_vals["stone"], new_vals["troops"]
+            new_vals["grain"],
+            new_vals["gold"],
+            new_vals["stone"],
+            new_vals["troops"],
         )
         p.last_tick = now
         self._repo.upsert_player(p)
@@ -119,8 +142,8 @@ class ResourceService:
         prod = {r: PRODUCTION_PER_MIN[r][lv_res[r]] for r in lv_res}
         cur = {"grain": p.grain, "gold": p.gold, "stone": p.stone, "troops": p.troops}
         return {
-            "level": lv_res,                 # 资源键名
-            "level_by_building": lv_bld,     # 建筑键名
+            "level": lv_res,  # 资源键名
+            "level_by_building": lv_bld,  # 建筑键名
             "cap": caps,
             "prod_per_min": prod,
             "cur": cur,
@@ -141,24 +164,33 @@ class ResourceService:
         p = self.settle(p)
 
         # 当前等级与目标等级
-        cur_lv = {"farm": p.farm_level, "bank": p.bank_level, "quarry": p.quarry_level, "barracks": p.barracks_level}[bid]
+        cur_lv = {
+            "farm": p.farm_level,
+            "bank": p.bank_level,
+            "quarry": p.quarry_level,
+            "barracks": p.barracks_level,
+        }[bid]
         if cur_lv >= MAX_LEVEL:
             return False, f"{building_name} 已是满级 {MAX_LEVEL}", p
         target_lv = cur_lv + 1
 
         # 成本：石头 + 自身资源
-        res_type = BUILDING_TO_RESOURCE[bid]  # farm->grain, bank->gold, quarry->stone, barracks->troops
+        res_type = BUILDING_TO_RESOURCE[
+            bid
+        ]  # farm->grain, bank->gold, quarry->stone, barracks->troops
         stone_need = UPGRADE_STONE_COST[bid][target_lv]
-        res_need   = UPGRADE_RESOURCE_COST[res_type][target_lv]
+        res_need = UPGRADE_RESOURCE_COST[res_type][target_lv]
 
         # 余额
-        have = {
-            "grain": p.grain, "gold": p.gold, "stone": p.stone, "troops": p.troops
-        }
+        have = {"grain": p.grain, "gold": p.gold, "stone": p.stone, "troops": p.troops}
 
         # 校验余额
-        stone_ok = have["stone"] >= (stone_need + (res_need if res_type == "stone" else 0))
-        res_ok   = (have[res_type] >= res_need) if res_type != "stone" else True  # 若自身资源就是石头，上面合并校验了
+        stone_ok = have["stone"] >= (
+            stone_need + (res_need if res_type == "stone" else 0)
+        )
+        res_ok = (
+            (have[res_type] >= res_need) if res_type != "stone" else True
+        )  # 若自身资源就是石头，上面合并校验了
 
         if not (stone_ok and res_ok):
             # 计算缺口
@@ -174,22 +206,26 @@ class ResourceService:
         # 扣款
         if res_type == "stone":
             # 两份石头一起扣
-            p.stone -= (stone_need + res_need)
+            p.stone -= stone_need + res_need
         else:
             p.stone -= stone_need
             if res_type == "grain":
                 p.grain -= res_need
             elif res_type == "gold":
-                p.gold  -= res_need
+                p.gold -= res_need
             elif res_type == "troops":
                 p.troops -= res_need
 
         # 升级
         new_lv = target_lv
-        if bid == "farm": p.farm_level = new_lv
-        elif bid == "bank": p.bank_level = new_lv
-        elif bid == "quarry": p.quarry_level = new_lv
-        else: p.barracks_level = new_lv
+        if bid == "farm":
+            p.farm_level = new_lv
+        elif bid == "bank":
+            p.bank_level = new_lv
+        elif bid == "quarry":
+            p.quarry_level = new_lv
+        else:
+            p.barracks_level = new_lv
 
         self._repo.upsert_player(p)
 
