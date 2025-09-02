@@ -5,6 +5,7 @@ from typing import Optional, Set
 from ..domain.entities import Player
 from ..domain.ports import PlayerRepositoryPort
 from dataclasses import fields # 导入 fields 函数
+import json
 
 DDL_PLAYERS = """
 CREATE TABLE IF NOT EXISTS players(
@@ -69,6 +70,33 @@ CREATE TABLE IF NOT EXISTS alliance_members(
 );
 """
 
+DDL_SIEGES = """
+CREATE TABLE IF NOT EXISTS sieges(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  alliance_id INTEGER,
+  city TEXT,
+  city_level INTEGER,
+  start_at INTEGER,          -- 预定开战时间（epoch秒）
+  created_by TEXT,
+  created_at INTEGER,
+  state TEXT,                -- scheduled | ongoing | done | canceled
+  result TEXT                -- success | fail | NULL
+);
+"""
+
+DDL_SIEGE_PARTS = """
+CREATE TABLE IF NOT EXISTS siege_participants(
+  siege_id INTEGER,
+  user_id TEXT,
+  from_city TEXT,
+  path_json TEXT,            -- ["成都","绵竹","广汉",...]
+  hops INTEGER,
+  eta INTEGER,               -- 预计到达时间（epoch秒）
+  joined_at INTEGER,
+  PRIMARY KEY(siege_id, user_id)
+);
+"""
+
 class SQLitePlayerRepository(PlayerRepositoryPort):
     def __init__(self, db_path: Path):
         self._db_path = Path(db_path)
@@ -84,7 +112,12 @@ class SQLitePlayerRepository(PlayerRepositoryPort):
         self._conn.execute(DDL_TEAM_SLOTS)
         self._conn.execute(DDL_ALLIANCES)
         self._conn.execute(DDL_ALLIANCE_MEMBERS)
-        # 兼容老表没有 draw_count
+        
+        # 攻城相关
+        self._conn.execute(DDL_SIEGES)
+        self._conn.execute(DDL_SIEGE_PARTS)
+        
+        # players 表列迁移（之前已加过）
         cols = {r[1] for r in self._conn.execute("PRAGMA table_info(players)").fetchall()}
         if "draw_count" not in cols:
             self._conn.execute("ALTER TABLE players ADD COLUMN draw_count INTEGER DEFAULT 0;")
@@ -301,3 +334,58 @@ class SQLitePlayerRepository(PlayerRepositoryPort):
         ORDER BY CASE role WHEN 'leader' THEN 0 ELSE 1 END, joined_at ASC
         """, (alliance_id,))
         return [dict(r) for r in cur.fetchall()]
+
+    # === 攻城：活动 ===
+    def create_siege(self, alliance_id: int, city: str, city_level: int,
+                     start_at: int, created_by: str) -> int:
+        cur = self._conn.execute(
+            "INSERT INTO sieges(alliance_id,city,city_level,start_at,created_by,created_at,state,result)"
+            " VALUES(?,?,?,?,?,?,?,?)",
+            (alliance_id, city, city_level, start_at, created_by, int(time.time()), "scheduled", None)
+        )
+        self._conn.commit()
+        return int(cur.lastrowid)
+
+    def get_active_siege_by_alliance(self, alliance_id: int):
+        cur = self._conn.execute(
+            "SELECT * FROM sieges WHERE alliance_id=? AND state IN ('scheduled','ongoing') "
+            "ORDER BY id DESC LIMIT 1", (alliance_id,)
+        )
+        r = cur.fetchone()
+        return None if not r else dict(zip([c[1] for c in self._conn.execute("PRAGMA table_info(sieges)")], r))
+
+    def get_siege(self, siege_id: int):
+        cur = self._conn.execute("SELECT * FROM sieges WHERE id=?", (siege_id,))
+        r = cur.fetchone()
+        return None if not r else dict(zip([c[1] for c in self._conn.execute("PRAGMA table_info(sieges)")], r))
+
+    def update_siege_state(self, siege_id: int, state: str, result: str | None):
+        self._conn.execute("UPDATE sieges SET state=?, result=? WHERE id=?", (state, result, siege_id))
+        self._conn.commit()
+
+    # === 攻城：参战队列 ===
+    def add_siege_participant(self, siege_id: int, user_id: str,
+                              from_city: str, path: list[str], hops: int, eta: int):
+        self._conn.execute(
+            "INSERT OR REPLACE INTO siege_participants(siege_id,user_id,from_city,path_json,hops,eta,joined_at)"
+            " VALUES(?,?,?,?,?,?,?)",
+            (siege_id, user_id, from_city, json.dumps(path, ensure_ascii=False), int(hops), int(eta), int(time.time()))
+        )
+        self._conn.commit()
+
+    def list_siege_participants(self, siege_id: int):
+        cur = self._conn.execute(
+            "SELECT user_id,from_city,path_json,hops,eta,joined_at FROM siege_participants WHERE siege_id=?",
+            (siege_id,)
+        )
+        out=[]
+        for r in cur.fetchall():
+            out.append({
+                "user_id": r[0],
+                "from_city": r[1],
+                "path": json.loads(r[2]) if r[2] else [],
+                "hops": int(r[3]),
+                "eta": int(r[4]),
+                "joined_at": int(r[5]),
+            })
+        return out

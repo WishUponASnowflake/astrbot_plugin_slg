@@ -80,3 +80,14 @@ CHAR_LEVEL_UP_COST_RANGE = {
 
 # === 同盟 ===
 ALLIANCE_MAX_MEMBERS = 20
+
+# === 攻城 ===
+SIEGE_WINDOW_MINUTES = 30        # 攻城窗口
+SIEGE_EDGE_MINUTES   = 5         # 每条路段默认行军耗时（分钟）
+# 达标阈值：取 30 分钟总攻城点数下限作为胜利门槛
+SIEGE_CITY_REQUIRE = {
+    1: 1200,     # 1200 - 1440
+    2: 4000,     # 4000 - 4800
+    3: 12000,    # 12000 - 14400
+    4: 25600,    # 25600 - 28800
+}

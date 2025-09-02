@@ -22,13 +22,14 @@ from ..domain.services_team import TeamService # 新增
 from ..domain.services_alliance import AllianceService
 from ..domain.services_battle import BattleService # 新增
 from ..domain.services_base import BaseService # 新增
+from ..domain.services_alliance_siege import AllianceSiegeService # 新增
 
 PLUGIN_NS = "astrbot_plugin_slg"
 
 class Container:
     def __init__(self, map_service, state_service, pipeline, hookbus, assets,
                  res_service, chars, team_service, alliance_service,
-                 battle_service, base_service):   # ← 增加 base_service
+                 battle_service, base_service, siege_service):   # ← 新增 siege_service
         self.map_service = map_service
         self.state_service = state_service
         self.pipeline = pipeline
@@ -40,6 +41,7 @@ class Container:
         self.alliance_service = alliance_service
         self.battle_service = battle_service # 新增
         self.base_service = base_service
+        self.siege_service = siege_service # 新增
         self.build_map_html = None
 
 def _data_root(context) -> Path:
@@ -104,10 +106,11 @@ def build_container(context, config=None, llm_provider_id: str = None) -> Contai
 
     battle_service = BattleService(player_repo, pool, context, llm_provider_id)  # ← 新增，并传递 llm_provider_id
     base_service = BaseService(player_repo, map_service)  # ← 新增
+    siege_service = AllianceSiegeService(player_repo, map_service)   # ← 新增
 
     c = Container(map_service, state_service, pipeline, hookbus, assets,
                   res_service, chars, team_service, ally_service,
-                  battle_service, base_service)
+                  battle_service, base_service, siege_service)
     c.build_map_html = lambda: build_map_html(map_service.graph(), state_service.get_line_progress, assets)
     print(f"[SLG] data_root = {data_root}")
     return c

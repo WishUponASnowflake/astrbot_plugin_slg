@@ -1,6 +1,8 @@
 # main.py
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
+from datetime import datetime, timedelta
+import time
 
 from .app.container import build_container
 from .domain.constants import RESOURCE_CN, BUILDING_ALIASES, BUILDING_TO_RESOURCE, DrawResultStatus
@@ -123,13 +125,76 @@ class HexPipelinePlugin(Star):
             lines.append(f"- {a['name']} 领袖:{a['leader_user_id']} 人数:{a['members']}")
         yield event.plain_result("\n".join(lines))
 
+    @staticmethod
+    def _parse_time_local(s: str) -> int | None:
+        """
+        支持两种格式：
+          1) 'YYYY-MM-DD HH:MM'
+          2) 'HH:MM'（今天该时刻，若已过则默认明天）
+        返回 epoch 秒；失败返回 None
+        """
+        s = (s or "").strip()
+        try:
+            if len(s) >= 16:
+                dt = datetime.strptime(s, "%Y-%m-%d %H:%M")
+            else:
+                hh, mm = s.split(":")
+                now = datetime.fromtimestamp(time.time())
+                dt = now.replace(hour=int(hh), minute=int(mm), second=0, microsecond=0)
+                if dt.timestamp() <= time.time():
+                    dt = dt + timedelta(days=1)
+            return int(dt.timestamp())
+        except Exception:
+            return None
+
+    @alliance_group.command("攻城")
+    async def cmd_alliance_siege(self, event: AstrMessageEvent, city: str, when: str):
+        """
+        发起同盟攻城：slg 同盟 攻城 城市名 预定时间
+        时间支持：'YYYY-MM-DD HH:MM' 或 'HH:MM'（当天，若已过则默认明天）
+        仅领袖可发起；一个同盟同一时间仅允许一个进行中的计划。
+        """
+        uid = str(event.get_sender_id())
+        start_at = HexPipelinePlugin._parse_time_local(when)
+        if not start_at:
+            yield event.plain_result("时间格式错误。示例：'2025-09-02 20:30' 或 '20:30'")
+            return
+        if start_at - int(time.time()) < 10 * 60:
+            yield event.plain_result("预定时间需要在10分钟之后")
+            return
+        ok, msg = self.container.siege_service.schedule_siege(uid, city.strip(), start_at)
+        yield event.plain_result(msg)
+
+    @alliance_group.command("集结")
+    async def cmd_alliance_rally(self, event: AstrMessageEvent):
+        """
+        参与当前同盟最近一次攻城计划：slg 同盟 集结
+        将从你的"基地城市"按最短路径出发，按每段 SIEGE_EDGE_MINUTES 分钟估算 ETA。
+        """
+        uid = str(event.get_sender_id())
+        ok, msg = self.container.siege_service.join_rally(uid)
+        yield event.plain_result(msg)
+
+    @alliance_group.command("攻城状态")
+    async def cmd_alliance_siege_status(self, event: AstrMessageEvent):
+        """
+        查看攻城状态并在到期时自动结算：slg 同盟 攻城状态
+        结算口径：30分钟窗口累计攻城点数 >= 城市等级阈值则成功。
+        """
+        uid = str(event.get_sender_id())
+        ok, msg = self.container.siege_service.status_and_maybe_finalize(uid)
+        yield event.plain_result(msg if ok else f"查询失败：{msg}")
+
     @alliance_group.command("帮助", alias={"help", "?", "？"})
     async def alliance_help(self, event: AstrMessageEvent):
         yield event.plain_result("用法：\n"
                                  "  slg 同盟 创建 名称\n"
                                  "  slg 同盟 加入 名称\n"
                                  "  slg 同盟 成员 [名称]    # 不填则查看自己所在同盟成员\n"
-                                 "  slg 同盟 列表")
+                                 "  slg 同盟 列表\n"
+                                 "  slg 同盟 攻城 城市名 时间\n"
+                                 "  slg 同盟 集结\n"
+                                 "  slg 同盟 攻城状态")
 
     @slg_group.command("资源", alias={"状态"})
     async def slg_resource_status(self, event: AstrMessageEvent):
