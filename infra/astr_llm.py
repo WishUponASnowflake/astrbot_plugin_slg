@@ -7,14 +7,26 @@ class AstrLLM:
     - system 放进 contexts，避免覆盖 AstrBot 自己的 system_prompt。
     - 对非纯 JSON 的输出做一次大括号截断兜底。
     """
-    def __init__(self, context):
+    def __init__(self, context, llm_provider_id: str = None):
         self.context = context
-        self.provider = context.get_using_provider()
+        if llm_provider_id:
+            self.provider = context.get_provider_by_id(llm_provider_id)
+            if not self.provider:
+                print(f"[WARN] 插件配置的 LLM Provider ID '{llm_provider_id}' 未找到或不可用。将尝试使用 AstrBot 的默认 LLM Provider。")
+                self.provider = context.get_using_provider()
+        else:
+            self.provider = context.get_using_provider()
+
         if not self.provider:
-            raise RuntimeError("AstrBot LLM Provider 未配置或不可用。请检查 AstrBot 的 LLM 设置。")
+            print("[WARN] AstrBot LLM Provider 未配置或不可用。LLM 功能将受限。")
         self.func_tools = context.get_llm_tool_manager()
 
     async def chat_json(self, system: str, user: str, temperature: float = 0.2) -> dict:
+        if not self.provider:
+            print("[WARN] LLM Provider 不可用，返回模拟响应。")
+            # 返回一个默认的模拟响应，避免插件崩溃
+            return {"response": "LLM Provider 未配置，无法生成响应。请检查 AstrBot 的 LLM 设置。", "parsed": True}
+
         resp = await self.provider.text_chat(
             prompt=user,
             session_id=None,          # 已废弃，不用

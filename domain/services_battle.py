@@ -108,10 +108,10 @@ class BattleService:
     从仓库读双方“队伍1”的成员与真实兵力；用 AstrLLM 做结构化判定；返回胜负与概率。
     不使用环境，简单、可控、够测。
     """
-    def __init__(self, repo, chars_pool: List[Character], context):
+    def __init__(self, repo, chars_pool: List[Character], context, llm_provider_id: str = None):
         self._repo = repo
         self._chars = {c.name: c for c in chars_pool if hasattr(c, "name")}
-        self._llm = AstrLLM(context)
+        self._llm = AstrLLM(context, llm_provider_id)
 
     def _members(self, names: List[str])->List[Character]:
         return [self._chars[n] for n in names if n in self._chars]

@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Optional, Set
 from ..domain.entities import Player
 from ..domain.ports import PlayerRepositoryPort
+from dataclasses import fields # 导入 fields 函数
 
 DDL_PLAYERS = """
 CREATE TABLE IF NOT EXISTS players(
@@ -13,7 +14,11 @@ CREATE TABLE IF NOT EXISTS players(
   last_tick INTEGER,
   grain INTEGER, gold INTEGER, stone INTEGER, troops INTEGER,
   farm_level INTEGER, bank_level INTEGER, quarry_level INTEGER, barracks_level INTEGER,
-  draw_count INTEGER DEFAULT 0
+  draw_count INTEGER DEFAULT 0,
+  base_city TEXT,
+  base_x INTEGER,
+  base_y INTEGER,
+  last_move_at INTEGER DEFAULT 0
 );
 """
 DDL_CHARS = """
@@ -83,6 +88,44 @@ class SQLitePlayerRepository(PlayerRepositoryPort):
         cols = {r[1] for r in self._conn.execute("PRAGMA table_info(players)").fetchall()}
         if "draw_count" not in cols:
             self._conn.execute("ALTER TABLE players ADD COLUMN draw_count INTEGER DEFAULT 0;")
+        if "base_city" not in cols:
+            self._conn.execute("ALTER TABLE players ADD COLUMN base_city TEXT;")
+        if "base_x" not in cols:
+            self._conn.execute("ALTER TABLE players ADD COLUMN base_x INTEGER;")
+        if "base_y" not in cols:
+            self._conn.execute("ALTER TABLE players ADD COLUMN base_y INTEGER;")
+        if "last_move_at" not in cols:
+            self._conn.execute("ALTER TABLE players ADD COLUMN last_move_at INTEGER DEFAULT 0;")
+        self._conn.commit()
+
+    # === 基地读写 ===
+    def get_base(self, user_id: str):
+        cur = self._conn.execute(
+            "SELECT base_city, base_x, base_y FROM players WHERE user_id=?", (user_id,)
+        )
+        r = cur.fetchone()
+        if not r: return None
+        if r[0] is None: return None
+        return {"city": r[0], "x": r[1], "y": r[2]}
+
+    def set_base(self, user_id: str, city: str, x: int, y: int):
+        self._conn.execute(
+            "UPDATE players SET base_city=?, base_x=?, base_y=? WHERE user_id=?",
+            (city, x, y, user_id),
+        )
+        self._conn.commit()
+
+    # === 迁城时间 ===
+    def get_last_move_at(self, user_id: str) -> int:
+        cur = self._conn.execute("SELECT last_move_at FROM players WHERE user_id=?", (user_id,))
+        r = cur.fetchone()
+        return 0 if not r or r[0] is None else int(r[0])
+
+    def set_last_move_at(self, user_id: str, ts: int | None = None):
+        ts = int(ts or time.time())
+        self._conn.execute(
+            "UPDATE players SET last_move_at=? WHERE user_id=?", (ts, user_id)
+        )
         self._conn.commit()
 
     def get_player(self, user_id: str) -> Optional[Player]:
@@ -92,22 +135,40 @@ class SQLitePlayerRepository(PlayerRepositoryPort):
             return None
         d = dict(row)
         d.setdefault("draw_count", 0)
-        return Player(**d)
+        d.setdefault("base_city", None)
+        d.setdefault("base_x", None)
+        d.setdefault("base_y", None)
+        d.setdefault("last_move_at", 0)
+        
+        # 获取 Player dataclass 的所有字段名
+        player_fields = {f.name for f in fields(Player)}
+        
+        # 过滤掉 Player 类不接受的参数
+        filtered_d = {k: v for k, v in d.items() if k in player_fields}
+        
+        return Player(**filtered_d)
 
     def upsert_player(self, p: Player) -> None:
         self._conn.execute("""
         INSERT INTO players(user_id,nickname,created_at,last_tick,grain,gold,stone,troops,
-                            farm_level,bank_level,quarry_level,barracks_level,draw_count)
-        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+                            farm_level,bank_level,quarry_level,barracks_level,draw_count,
+                            base_city,base_x,base_y,last_move_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(user_id) DO UPDATE SET
           nickname=excluded.nickname,
           last_tick=excluded.last_tick,
           grain=excluded.grain, gold=excluded.gold, stone=excluded.stone, troops=excluded.troops,
           farm_level=excluded.farm_level, bank_level=excluded.bank_level,
           quarry_level=excluded.quarry_level, barracks_level=excluded.barracks_level,
-          draw_count=excluded.draw_count
+          draw_count=excluded.draw_count,
+          base_city=excluded.base_city,
+          base_x=excluded.base_x,
+          base_y=excluded.base_y,
+          last_move_at=excluded.last_move_at
         """, (p.user_id, p.nickname, p.created_at, p.last_tick, p.grain, p.gold, p.stone, p.troops,
-              p.farm_level, p.bank_level, p.quarry_level, p.barracks_level, p.draw_count))
+              p.farm_level, p.bank_level, p.quarry_level, p.barracks_level, p.draw_count,
+              getattr(p, 'base_city', None), getattr(p, 'base_x', None),
+              getattr(p, 'base_y', None), getattr(p, 'last_move_at', 0)))
         self._conn.commit()
 
     # === 角色收集/等级 ===

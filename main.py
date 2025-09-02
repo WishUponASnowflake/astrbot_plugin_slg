@@ -9,7 +9,8 @@ from .domain.constants import RESOURCE_CN, BUILDING_ALIASES, BUILDING_TO_RESOURC
 class HexPipelinePlugin(Star):
     def __init__(self, context: Context, config=None):
         super().__init__(context)
-        self.container = build_container(context, config)
+        llm_provider_id = config.get("llm_provider_id") if config else None
+        self.container = build_container(context, config, llm_provider_id)
         self.map_svc = self.container.map_service
         self.state_svc = self.container.state_service
         self.pipe = self.container.pipeline
@@ -25,11 +26,12 @@ class HexPipelinePlugin(Star):
     async def slg_join(self, event: AstrMessageEvent):
         uid = str(event.get_sender_id()); name = event.get_sender_name() or uid
         p = self.res.register(uid, name)
+        self.container.base_service.ensure_base(uid) # 新增：加入时自动分配基地
         yield event.plain_result(f"已加入。四建筑默认1级，开始自动产出。")
 
     @slg_group.command("帮助", alias={"help", "？", "?"})
     async def slg_help(self, event: AstrMessageEvent):
-        yield event.plain_result("用法：/slg 加入 | 资源 | 升级 <农田/钱庄/采石场/军营> | 抽卡 <次数>")
+        yield event.plain_result("用法：/slg 加入 | 资源 | 升级 <农田/钱庄/采石场/军营> | 抽卡 <次数> | 基地 | 迁城 <城市名>")
 
     @slg_group.command("进军", alias={"攻打", "开战"})
     async def slg_march(self, event: AstrMessageEvent, target: str):
@@ -343,3 +345,37 @@ class HexPipelinePlugin(Star):
             return
         pairs = [f"{g}→{nb}" for g, nb in fl.items()]
         yield event.plain_result(f"{node} 战线: " + " | ".join(pairs))
+
+    @slg_group.command("基地")
+    async def slg_base(self, event: AstrMessageEvent):
+        """查看或自动分配基地（首次进入自动分配到四州之一）"""
+        uid = str(event.get_sender_id())
+        p = self.container.res_service.get_or_none(uid)
+        if not p:
+            yield event.plain_result("还没加入。先用：slg 加入")
+            return
+        ok, msg = self.container.base_service.ensure_base(uid)
+        yield event.plain_result(msg)
+
+    @slg_group.command("迁城")
+    async def slg_move_capital(self, event: AstrMessageEvent, city: str):
+        """
+        迁城到指定城市（每天一次；仅允许 益/扬/冀/兖 四州）
+        用法：slg 迁城 城市名
+        """
+        uid = str(event.get_sender_id())
+        p = self.container.res_service.get_or_none(uid)
+        if not p:
+            yield event.plain_result("还没加入。先用：slg 加入")
+            return
+
+        # 确保已有基地（新号会自动分配）
+        _ok, _ = self.container.base_service.ensure_base(uid)
+
+        target = (city or "").strip()
+        if not target:
+            yield event.plain_result("用法：slg 迁城 城市名")
+            return
+
+        ok, msg = self.container.base_service.migrate(uid, target)
+        yield event.plain_result(msg)

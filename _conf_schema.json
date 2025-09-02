@@ -3,5 +3,10 @@
     "description": "相对 AstrBot 根 data 目录的子目录",
     "type": "string",
     "default": "plugin_data/astrbot_plugin_slg"
+  },
+  "llm_provider_id": {
+    "description": "指定用于此插件的 LLM Provider ID。如果未填写，将使用 AstrBot 的默认 LLM Provider。",
+    "type": "string",
+    "default": null
   }
 }
