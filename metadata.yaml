@@ -2,5 +2,5 @@ name: astrbot_plugin_slg
 author: xunxiing
 description: "用astrbot玩slg"
 version: "1.3.16"
-homepage: "https://github.com/xunxiing/astrbot_plugin_slg"
+repo: "https://github.com/xunxiing/astrbot_plugin_slg"
 license: "MIT"
