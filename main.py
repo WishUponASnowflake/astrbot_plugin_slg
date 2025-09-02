@@ -8,7 +8,7 @@ from .app.container import build_container
 from .domain.constants import BUILDING_ALIASES, BUILDING_TO_RESOURCE, DrawResultStatus
 
 
-@register("astrbot_plugin_slg", "you", "SLG Map + Resource", "0.3.0", "repo_url")
+@register("astrbot_plugin_slg", "xunxiing", "SLG Map + Resource", "1.3.16", "https://github.com/xunxiing/astrbot_plugin_slg")
 class HexPipelinePlugin(Star):
     def __init__(self, context: Context, config=None):
         super().__init__(context)
