@@ -244,7 +244,7 @@ class City:
 ## 贡献
 
 欢迎提交 Issue 和 Pull Request 来改进这个插件。
-
+本插件处于开发阶段，欢迎加入qq群：1054962131 进行讨论和建议
 ## 许可证
 
 MIT License

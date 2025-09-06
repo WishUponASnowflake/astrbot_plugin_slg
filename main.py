@@ -5,7 +5,15 @@ from datetime import datetime, timedelta
 import time
 
 from .app.container import build_container
-from .domain.constants import BUILDING_ALIASES, BUILDING_TO_RESOURCE, DrawResultStatus
+from .domain.constants import (
+    BUILDING_ALIASES,
+    BUILDING_TO_RESOURCE,
+    RESOURCE_CN,
+    DrawResultStatus,
+    UPGRADE_STONE_COST,
+    UPGRADE_RESOURCE_COST,
+    MAX_LEVEL,
+)
 
 
 @register("astrbot_plugin_slg", "xunxiing", "SLG Map + Resource", "1.3.16", "https://github.com/xunxiing/astrbot_plugin_slg")
@@ -36,7 +44,7 @@ class HexPipelinePlugin(Star):
     @slg_group.command("帮助", alias={"help", "？", "?"})
     async def slg_help(self, event: AstrMessageEvent):
         yield event.plain_result(
-            "用法：/slg 加入 | 资源 | 升级 <农田/钱庄/采石场/军营> | 抽卡 <次数> | 基地 | 迁城 <城市名>"
+            "用法：/slg 加入 | 资源 | 一键 | 升级 <农田/钱庄/采石场/军营> | 抽卡 <次数> | 基地 | 迁城 <城市名>"
         )
 
     @slg_group.command("进军", alias={"攻打", "开战"})
@@ -126,6 +134,119 @@ class HexPipelinePlugin(Star):
         for m in ms:
             role = "领袖" if m["role"] == "leader" else "成员"
             lines.append(f"- {m['user_id']}（{role}）")
+        yield event.plain_result("\n".join(lines))
+
+    @slg_group.command("一键", alias={"daily", "一键日常"})
+    async def slg_one_tap(self, event: AstrMessageEvent):
+        """一键日常：结算→汇总→建议下一步。
+        仅展示建议，不自动执行任何消耗性操作。
+        """
+        uid = str(event.get_sender_id())
+        event.get_sender_name() or uid
+        p = self.res.get_or_none(uid)
+        if not p:
+            yield event.plain_result("还没加入。先用：/slg 加入")
+            return
+
+        # 1) 资源结算 & 基本状态
+        p = self.res.settle(p)
+        self.container.team_service.ensure_teams(uid)
+        s = self.res.status(p)
+        lvb = s["level_by_building"]
+        prod = s["prod_per_min"]
+        cap = s["cap"]
+        cur = s["cur"]
+
+        # 2) 可升清单 & 缺口估算
+        def _fmt_cost(res_type: str, stone_need: int, res_need: int) -> str:
+            if res_type == "stone":
+                return f"石头 {stone_need + res_need}"
+            return f"石头 {stone_need}，{RESOURCE_CN[res_type]} {res_need}"
+
+        affordable = []
+        next_gaps = []
+        show_order = ["farm", "bank", "quarry", "barracks"]
+        cn_name = {"farm": "农田", "bank": "钱庄", "quarry": "采石场", "barracks": "军营"}
+        for bid in show_order:
+            cur_lv = int(lvb[bid])
+            if cur_lv >= MAX_LEVEL:
+                continue
+            res_type = BUILDING_TO_RESOURCE[bid]
+            stone_need = UPGRADE_STONE_COST[bid][cur_lv + 1]
+            res_need = UPGRADE_RESOURCE_COST[res_type][cur_lv + 1]
+            have_stone = cur["stone"]
+            have_res = cur[res_type]
+            stone_ok = have_stone >= (stone_need + (res_need if res_type == "stone" else 0))
+            res_ok = (have_res >= res_need) if res_type != "stone" else True
+            if stone_ok and res_ok:
+                affordable.append(f"{cn_name[bid]}→{cur_lv+1}级（{_fmt_cost(res_type, stone_need, res_need)}）")
+            else:
+                # 估算到达下一档所需分钟（取石头/自身资源两者的最大时间）
+                need_stone = max(0, stone_need + (res_need if res_type == "stone" else 0) - have_stone)
+                need_res = 0 if res_type == "stone" else max(0, res_need - have_res)
+                t1 = float("inf") if prod["stone"] <= 0 else (need_stone / max(1, prod["stone"]))
+                t2 = 0 if res_type == "stone" else (float("inf") if prod[res_type] <= 0 else (need_res / max(1, prod[res_type])))
+                eta_min = int(t1 if t1 > t2 else t2)
+                gap_parts = []
+                if need_stone > 0:
+                    gap_parts.append(f"石头缺{need_stone}")
+                if need_res > 0:
+                    gap_parts.append(f"{RESOURCE_CN[res_type]}缺{need_res}")
+                next_gaps.append(f"{cn_name[bid]}→{cur_lv+1}级 缺口：{'，'.join(gap_parts)}（约 {eta_min} 分钟）")
+
+        # 3) 编成与补兵建议
+        owned = self.res._repo.list_owned_char_names(uid)  # 仅读
+        slots = self.res._repo.list_team_slots(uid, 1)
+        assigned_any = any(name for _, name in slots)
+        cap1 = self.container.team_service.calc_capacity(uid, 1)
+        cur1 = self.res._repo.get_team_soldiers(uid, 1)
+
+        suggestions = []
+        # 优先级：没角色→抽卡；有角色未上阵→上阵；可补兵→补兵；可升→升级；否则提示等待
+        if not owned:
+            # 下次单抽价格（预览）
+            nxt = getattr(p, "draw_count", 0) + 1
+            if hasattr(self.container.gacha_service, "cost_for_draw_index"):
+                c = self.container.gacha_service.cost_for_draw_index(nxt)
+                suggestions.append(
+                    f"建议：/slg 抽卡 10（下次单抽费用 预览：金{c['gold']} 粮{c['grain']} 石{c['stone']} 兵{c['troops']}）"
+                )
+            else:
+                suggestions.append("建议：/slg 抽卡 10")
+        elif not assigned_any:
+            name = owned[0]
+            suggestions.append(f"建议：/slg 上阵 {name} 1  # 先把角色上到队伍1")
+        elif cur1 < cap1 and p.troops > 0:
+            suggestions.append("建议：/slg 补兵 1  # 队伍1未满编")
+        elif affordable:
+            # 简单推荐第一条可升（更复杂的性价比可后续扩展）
+            first = affordable[0]
+            bname = first.split("→", 1)[0]
+            suggestions.append(f"建议：/slg 升级 {bname}")
+        else:
+            # 兜底：按缺口里最快的一项给等待提示
+            wait_tip = next_gaps[0] if next_gaps else "资源已接近上限，可视情况升级或抽卡"
+            suggestions.append(f"建议：等待一会儿产出（{wait_tip}）")
+
+        # 4) 输出
+        lines = []
+        lines.append(
+            f"建筑：农田{lvb['farm']} 钱庄{lvb['bank']} 采石场{lvb['quarry']} 军营{lvb['barracks']}"
+        )
+        lines.append(
+            f"产出/分：粮{prod['grain']} 金{prod['gold']} 石{prod['stone']} 兵{prod['troops']}"
+        )
+        lines.append(
+            f"资源：粮{cur['grain']}/{cap['grain']} 金{cur['gold']}/{cap['gold']} 石{cur['stone']}/{cap['stone']} 兵{cur['troops']}/{cap['troops']}"
+        )
+        if affordable:
+            lines.append("可直接升级：" + "；".join(affordable))
+        if next_gaps:
+            lines.append("下一档缺口：\n- " + "\n- ".join(next_gaps))
+        lines.append(
+            f"队伍1：成员{'有' if assigned_any else '无'}｜兵 {cur1}/{cap1}（仓库兵 {p.troops}）"
+        )
+        lines.extend(suggestions)
         yield event.plain_result("\n".join(lines))
 
     @alliance_group.command("列表", alias={"所有", "排行"})
