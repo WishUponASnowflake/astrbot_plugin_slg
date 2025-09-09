@@ -3,6 +3,8 @@ from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from datetime import datetime, timedelta
 import time
+import tempfile
+from pathlib import Path
 
 from .app.container import build_container
 from .domain.constants import (
@@ -341,26 +343,109 @@ class HexPipelinePlugin(Star):
 
     @slg_group.command("资源", alias={"状态"})
     async def slg_resource_status(self, event: AstrMessageEvent):
+        """资源状态 → Pillow 图片化输出。
+        依赖: Pillow；背景图：picture/resourcebg.png；字体：fonts/ 下可选（无则退回默认字体）。
+        """
         uid = str(event.get_sender_id())
         event.get_sender_name() or uid
         p = self.res.get_or_none(uid)
         if not p:
             yield event.plain_result("还没加入。先用：/slg 加入")
             return
-        # 懒结算
+
+        # 懒结算 & 读取状态
         p = self.res.settle(p)
         s = self.res.status(p)
-        lvb = s["level_by_building"]  # 这里用建筑键名
+        lvb = s["level_by_building"]
         prod = s["prod_per_min"]
         cap = s["cap"]
         cur = s["cur"]
 
+        # 文案行
         lines = [
-            f"建筑等级：农田{lvb['farm']} 钱庄{lvb['bank']} 采石场{lvb['quarry']} 军营{lvb['barracks']}",
-            f"产出/分钟：粮{prod['grain']} 金{prod['gold']} 石{prod['stone']} 兵{prod['troops']}",
-            f"当前/上限：粮{cur['grain']}/{cap['grain']} 金{cur['gold']}/{cap['gold']} 石{cur['stone']}/{cap['stone']} 兵{cur['troops']}/{cap['troops']}",
+            f"建筑等级：农田{lvb['farm']}  钱庄{lvb['bank']}  采石场{lvb['quarry']}  军营{lvb['barracks']}",
+            f"产出/分钟：粮{prod['grain']}  金{prod['gold']}  石{prod['stone']}  兵{prod['troops']}",
+            f"当前/上限：粮{cur['grain']}/{cap['grain']}  金{cur['gold']}/{cap['gold']}  石{cur['stone']}/{cap['stone']}  兵{cur['troops']}/{cap['troops']}",
         ]
-        yield event.plain_result("\n".join(lines))
+
+        # === 图片渲染 ===
+        try:
+            from PIL import Image, ImageDraw, ImageFont
+        except Exception:
+            yield event.plain_result("未安装 Pillow。请先安装：pip install Pillow")
+            return
+
+        # 资源路径（插件根目录/picture/resourcebg.png）
+        plugin_root = Path(__file__).resolve().parent
+        bg_path = plugin_root / "picture" / "resourcebg.png"
+        if not bg_path.exists():
+            yield event.plain_result(f"找不到背景图：{bg_path}")
+            return
+
+        img = Image.open(bg_path).convert("RGBA")
+        draw = ImageDraw.Draw(img)
+
+        # 字体：优先使用 LXGWWenKaiMono-Regular.ttf
+        font_dir = plugin_root / "fonts"
+        font_path = font_dir / "LXGWWenKaiMono-Regular.ttf"
+        try:
+            title_font = ImageFont.truetype(str(font_path), 80) if font_path.exists() else ImageFont.load_default()
+            body_font = ImageFont.truetype(str(font_path), 56) if font_path.exists() else ImageFont.load_default()
+        except Exception:
+            title_font = ImageFont.load_default()
+            body_font = ImageFont.load_default()
+
+        # 版式：调整起始坐标和行间距，文字颜色改为白色，描边改为黑色
+        x0, y0 = 60, 80  # 调整起始坐标
+        line_gap = 80  # 调整行间距
+        text_color = (255, 255, 255)  # 白色文字
+        stroke_color = (0, 0, 0)  # 黑色描边
+
+        # 标题
+        draw.text((x0, y0), "资源状态", font=title_font, fill=text_color, stroke_width=5, stroke_fill=stroke_color)
+
+        # 重新组织数据，以便进行动态对齐
+        data_rows = [
+            {"label": "建筑等级：", "items": [f"农田{lvb['farm']}", f"钱庄{lvb['bank']}", f"采石场{lvb['quarry']}", f"军营{lvb['barracks']}"]},
+            {"label": "产出/分钟：", "items": [f"粮{prod['grain']}", f"金{prod['gold']}", f"石{prod['stone']}", f"兵{prod['troops']}"]},
+            {"label": "当前/上限：", "items": [
+                f"粮{cur['grain']}/{cap['grain']}",
+                f"金{cur['gold']}/{cap['gold']}",
+                f"石{cur['stone']}/{cap['stone']}",
+                f"兵{cur['troops']}/{cap['troops']}",
+            ]},
+        ]
+
+        # 计算每列的最大宽度，用于动态对齐
+        num_cols = 4
+        col_widths = [0] * num_cols
+        for row in data_rows:
+            for i, item in enumerate(row["items"]):
+                bbox = draw.textbbox((0, 0), item, font=body_font)
+                width = bbox[2] - bbox[0]
+                if width > col_widths[i]:
+                    col_widths[i] = width
+
+        # 计算每列的起始X坐标
+        col_x_positions = [x0 + 250] # 第一个资源项的起始X坐标
+        for i in range(1, num_cols):
+            # 确保列之间有足够的间距，例如20px
+            col_x_positions.append(col_x_positions[i-1] + col_widths[i-1] + 50) # 50是列间距
+
+        # 绘制正文
+        current_y = y0 + 120 # 调整正文起始Y坐标
+        for row_data in data_rows:
+            # 绘制行标签
+            draw.text((x0, current_y), row_data["label"], font=body_font, fill=text_color, stroke_width=4, stroke_fill=stroke_color)
+            # 绘制资源项
+            for i, item_text in enumerate(row_data["items"]):
+                draw.text((col_x_positions[i], current_y), item_text, font=body_font, fill=text_color, stroke_width=4, stroke_fill=stroke_color)
+            current_y += line_gap
+
+        # 临时文件 & 发送
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+            img.save(tmp.name, "PNG")
+            yield event.image_result(tmp.name)
 
     @slg_group.command("队伍", alias={"编成", "编队"})
     async def slg_team(self, event: AstrMessageEvent, team_no: int = None):
